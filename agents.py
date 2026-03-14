@@ -1,6 +1,6 @@
-import anthropic
 import json
 import re
+import google.generativeai as genai
 
 
 def _clean_json(text: str) -> str:
@@ -10,10 +10,10 @@ def _clean_json(text: str) -> str:
     return text.strip()
 
 
-def _client(api_key: str) -> anthropic.Anthropic:
-    import streamlit as st
-    key = api_key or st.secrets.get("ANTHROPIC_API_KEY", "")
-    return anthropic.Anthropic(api_key=key)
+def _model(api_key: str):
+    genai.configure(api_key=api_key)
+    return genai.GenerativeModel("gemini-1.5-flash")
+
 
 # ── Scope Agent ────────────────────────────────────────────────────────────────
 
@@ -60,12 +60,8 @@ Be thorough, professional, and realistic. Infer sensible details from the descri
 Project Description:
 {description}"""
 
-    msg = _client(api_key).messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=2500,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return msg.content[0].text
+    response = _model(api_key).generate_content(prompt)
+    return response.text
 
 
 # ── Risk Agent ─────────────────────────────────────────────────────────────────
@@ -91,9 +87,9 @@ Allowed values:
   category   → Technical | Financial | Schedule | Resource | External | Organizational
   likelihood → High | Medium | Low
   impact     → High | Medium | Low
-  risk_score → derive from likelihood × impact:
-               High×High=High | High×Med or Med×High=High | Med×Med=Medium
-               Low×any or any×Low=Low (unless both Med → Medium)
+  risk_score → derive from likelihood x impact:
+               High x High=High | High x Med or Med x High=High | Med x Med=Medium
+               Low x any or any x Low=Low
 
 Return ONLY the JSON array.
 
@@ -101,12 +97,8 @@ Return ONLY the JSON array.
 Project Scope Statement:
 {scope}"""
 
-    msg = _client(api_key).messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=3000,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return json.loads(_clean_json(msg.content[0].text))
+    response = _model(api_key).generate_content(prompt)
+    return json.loads(_clean_json(response.text))
 
 
 # ── WBS / CPM Agent ────────────────────────────────────────────────────────────
@@ -137,12 +129,12 @@ Use this exact schema:
 }}
 
 Hard rules:
-- Create exactly 13–15 tasks covering the full lifecycle (Initiation → Planning → Execution → Monitoring → Closure).
+- Create exactly 13–15 tasks covering the full lifecycle (Initiation to Planning to Execution to Monitoring to Closure).
 - All durations are integers in DAYS; optimistic < most_likely < pessimistic always.
 - dependencies lists task_ids that must FINISH before this task STARTS.
 - Initiation / kickoff tasks have empty dependencies [].
-- NO circular dependencies — verify before responding.
-- task_ids must be "T1", "T2", … sequentially.
+- NO circular dependencies.
+- task_ids must be "T1", "T2" sequentially.
 - Return ONLY valid JSON.
 
 Project Name: {project_name}
@@ -150,9 +142,5 @@ Project Name: {project_name}
 Project Scope Statement:
 {scope}"""
 
-    msg = _client(api_key).messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=3500,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return json.loads(_clean_json(msg.content[0].text))
+    response = _model(api_key).generate_content(prompt)
+    return json.loads(_clean_json(response.text))
