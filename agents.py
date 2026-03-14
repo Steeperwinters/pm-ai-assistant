@@ -11,8 +11,9 @@ def _clean_json(text: str) -> str:
 
 
 def _client(api_key: str) -> anthropic.Anthropic:
-    return anthropic.Anthropic(api_key=api_key)
-
+    import streamlit as st
+    key = api_key or st.secrets.get("ANTHROPIC_API_KEY", "")
+    return anthropic.Anthropic(api_key=key)
 
 # ── Scope Agent ────────────────────────────────────────────────────────────────
 
