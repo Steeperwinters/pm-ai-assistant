@@ -72,12 +72,12 @@ with st.sidebar:
     st.markdown("## 🤖 AI PM Assistant")
     st.markdown("---")
 
-    st.markdown("### 🔑 API Key")
+    st.markdown("### 🔑 Gemini API Key (Free)")
     api_key = st.text_input(
         "Anthropic API Key",
         type="password",
-        placeholder="sk-ant-...",
-        help="Get yours at console.anthropic.com",
+        placeholder="AIza...",
+        help="Get yours FREE at aistudio.google.com",
     )
 
     st.markdown("---")
