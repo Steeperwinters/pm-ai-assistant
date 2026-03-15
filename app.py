@@ -88,7 +88,16 @@ html, body, .stApp {
 /* ── Hide Streamlit chrome ── */
 #MainMenu, footer, header, [data-testid="stDecoration"] { visibility: hidden !important; }
 [data-testid="stSidebar"] { display: none !important; }
-.block-container { padding: 0 !important; max-width: 100% !important; }
+.block-container { padding: 0 3rem !important; max-width: 100% !important; }
+
+/* ── topbar / sticky headers span full width despite block-container padding ── */
+.topbar,
+[data-testid="stVerticalBlock"] > div:first-child .topbar {
+    margin-left: -3rem !important;
+    margin-right: -3rem !important;
+    padding-left: 5.5rem !important;
+    padding-right: 5.5rem !important;
+}
 
 /* ═══════════════════════════════════════
    INPUTS
@@ -413,6 +422,20 @@ hr { border-color: #1a1a1a !important; margin: 1.5rem 0 !important; }
     text-transform:uppercase; padding:0.15rem 0.5rem;
     border-radius:4px; color:#00ff87; border:1px solid #00ff8733;
 }
+
+/* ═══════════════════════════════════════
+   RESPONSIVE MARGINS
+═══════════════════════════════════════ */
+@media (max-width: 768px) {
+    .block-container { padding: 0 1rem !important; }
+    .topbar {
+        margin-left: -1rem !important;
+        margin-right: -1rem !important;
+        padding-left: 2rem !important;
+        padding-right: 2rem !important;
+    }
+    .dash-body { padding: 1.5rem 1rem !important; }
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -505,7 +528,8 @@ def render_portfolio():
 <div style="position:sticky;top:0;z-index:999;background:#080808ee;
     backdrop-filter:blur(12px);border-bottom:1px solid #141414;
     display:flex;align-items:center;justify-content:space-between;
-    padding:0.85rem 3rem">
+    padding:0.85rem 3.5rem;
+    margin-left:-3rem;margin-right:-3rem;">
   <div style="font-family:'Bebas Neue',sans-serif;font-size:1.35rem;color:#fff;letter-spacing:0.08em">
     SMART <span style="color:#00ff87">PROJECT</span>
   </div>
@@ -890,7 +914,7 @@ def render_dashboard():
 
             style_cols = [c for c in ["Likelihood","Impact","Risk Score"] if c in df.columns]
             st.dataframe(
-                df.style.applymap(_rc, subset=style_cols),
+                df.style.map(_rc, subset=style_cols),
                 use_container_width=True, height=460,
             )
             st.markdown("<br>", unsafe_allow_html=True)
