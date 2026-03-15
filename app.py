@@ -37,6 +37,15 @@ def go(screen, **kw):
         st.session_state[k] = v
     st.rerun()
 
+def sort_wbs_key(item):
+    """Sort WBS items by hierarchical ID: 1 < 1.1 < 1.1.1 < 1.2 < 2"""
+    parts = str(item.get("id", "0")).split(".")
+    result = []
+    for p in parts:
+        try: result.append(int(p))
+        except: result.append(0)
+    return result
+
 def save_to_portfolio():
     """Save current project to portfolio if it has at least a scope."""
     if not st.session_state.scope:
@@ -264,41 +273,45 @@ html, body, .stApp {
 hr { border-color: #1a1a1a !important; margin: 1.5rem 0 !important; }
 
 /* ═══════════════════════════════════════
-   SCOPE MARKDOWN — proper hierarchy
+   SCOPE / ALL MARKDOWN — Syne headings, DM Mono body, justified
 ═══════════════════════════════════════ */
-.scope-render h1, .scope-render h2 {
+.stMarkdown h1, .stMarkdown h2 {
     font-family: 'Syne', sans-serif !important;
-    font-size: 1.15rem !important;
+    font-size: 1.1rem !important;
     font-weight: 800 !important;
     color: #ffffff !important;
     border-bottom: 1px solid #1e1e1e !important;
     padding-bottom: 0.4rem !important;
-    margin: 1.8rem 0 0.8rem !important;
+    margin: 1.8rem 0 0.7rem !important;
+    letter-spacing: -0.01em !important;
 }
-.scope-render h3 {
+.stMarkdown h3 {
     font-family: 'Syne', sans-serif !important;
-    font-size: 0.95rem !important;
+    font-size: 0.92rem !important;
     font-weight: 700 !important;
     color: #00ff87 !important;
-    margin: 1.3rem 0 0.5rem !important;
-    letter-spacing: 0.01em !important;
+    margin: 1.2rem 0 0.4rem !important;
 }
-.scope-render p {
+.stMarkdown p {
     font-family: 'DM Mono', monospace !important;
-    font-size: 0.86rem !important;
+    font-size: 0.85rem !important;
     color: #cccccc !important;
     line-height: 1.85 !important;
     margin-bottom: 0.75rem !important;
+    text-align: justify !important;
 }
-.scope-render li {
+.stMarkdown li {
     font-family: 'DM Mono', monospace !important;
-    font-size: 0.84rem !important;
+    font-size: 0.83rem !important;
     color: #bbbbbb !important;
     line-height: 1.8 !important;
-    margin-bottom: 0.3rem !important;
+    margin-bottom: 0.25rem !important;
 }
-.scope-render strong { color: #eeeeee !important; font-weight: 600 !important; }
-.scope-render ul, .scope-render ol { padding-left: 1.5rem !important; margin-bottom: 0.8rem !important; }
+.stMarkdown strong { color: #eeeeee !important; font-weight: 600 !important; }
+.stMarkdown ul, .stMarkdown ol {
+    padding-left: 1.5rem !important;
+    margin-bottom: 0.8rem !important;
+}
 
 /* ═══════════════════════════════════════
    LANDING
@@ -330,14 +343,14 @@ hr { border-color: #1a1a1a !important; margin: 1.5rem 0 !important; }
     background:#080808ee; backdrop-filter:blur(12px);
     border-bottom:1px solid #141414;
     display:flex; align-items:center; justify-content:space-between;
-    padding:0.85rem 3rem;
+    padding:0.85rem 3.5rem;
 }
 .topbar-brand { font-family:'Bebas Neue',sans-serif; font-size:1.35rem; color:#fff; letter-spacing:0.08em; }
 .topbar-brand span { color:#00ff87; }
 .topbar-proj  { font-family:'DM Mono',monospace; font-size:0.7rem; color:#444; letter-spacing:0.1em; text-transform:uppercase; }
 .topbar-proj strong { color:#00ff87; font-weight:500; }
 
-.dash-body { max-width:1060px; margin:0 auto; padding:2.5rem 2.5rem; }
+.dash-body { max-width:1080px; margin:0 auto; padding:2.5rem 3.5rem; }
 
 .sec-lbl {
     display:block; font-family:'DM Mono',monospace; font-size:0.62rem;
@@ -502,7 +515,7 @@ def render_portfolio():
 </div>
 """, unsafe_allow_html=True)
 
-    st.markdown('<div style="max-width:1060px;margin:0 auto;padding:2.5rem 2.5rem">', unsafe_allow_html=True)
+    st.markdown('<div style="max-width:1080px;margin:0 auto;padding:2.5rem 3.5rem">', unsafe_allow_html=True)
 
     _, bc, _ = st.columns([3, 1, 3])
     with bc:
@@ -729,7 +742,7 @@ def render_dashboard():
      style="width:100%;border-radius:10px;display:block;border:1px solid #1e1e1e" alt="{pname}"/>
 <div style="font-family:'DM Mono',monospace;font-size:0.62rem;color:#333;
     letter-spacing:0.1em;text-align:center;margin-top:0.5rem">
-  AI-GENERATED · {pname.upper()[:20]}
+  AI-GENERATED CITYSCAPE
 </div>""", unsafe_allow_html=True)
 
     with ctrl_col:
@@ -823,10 +836,14 @@ def render_dashboard():
                 if scope_text.strip().startswith(strip.strip()):
                     scope_text = scope_text[scope_text.index("\n")+1:].lstrip()
 
-            with st.container():
-                st.markdown(f'<div class="scope-render">', unsafe_allow_html=True)
-                st.markdown(scope_text)
-                st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown(
+                '<div style="background:#0b0b0b;border:1px solid #1a1a1a;'
+                'border-left:3px solid #00ff87;border-radius:10px;'
+                'padding:2rem 2.5rem;margin-bottom:1.5rem">',
+                unsafe_allow_html=True
+            )
+            st.markdown(scope_text)
+            st.markdown('</div>', unsafe_allow_html=True)
 
             st.markdown("<br>", unsafe_allow_html=True)
             st.download_button("↓  Download Scope Statement (.txt)",
@@ -951,29 +968,59 @@ def render_dashboard():
                 st.markdown('<span class="sec-lbl">Work Breakdown Structure</span>', unsafe_allow_html=True)
                 st.markdown('<div class="sec-title">WBS Tree</div>', unsafe_allow_html=True)
 
+                # Sort WBS items by hierarchical ID so 1 → 1.1 → 1.1.1 → 1.2 → 2 etc.
+                sorted_wbs = sorted(
+                    st.session_state.wbs_data["wbs"],
+                    key=sort_wbs_key
+                )
                 wbs_rows = ""
-                phase_icons = {1:"◆",2:"▷",3:"·"}
-                ph_colors   = {1:"#fff",2:"#ccc",3:"#777"}
-                ph_weights  = {1:"800",2:"600",3:"400"}
-                ph_sizes    = {1:"0.92rem",2:"0.86rem",3:"0.8rem"}
+                for item in sorted_wbs:
+                    lvl = item["level"]
+                    # Indentation: 0 for level 1, 2rem for level 2, 4rem for level 3
+                    indent_px = (lvl - 1) * 28
+                    indent = f"margin-left:{indent_px}px"
 
-                for item in st.session_state.wbs_data["wbs"]:
-                    lvl  = item["level"]
-                    ind  = "&nbsp;" * 8 * (lvl-1)
-                    icon = phase_icons.get(lvl,"·")
-                    col  = ph_colors.get(lvl,"#777")
-                    fw   = ph_weights.get(lvl,"400")
-                    fs   = ph_sizes.get(lvl,"0.8rem")
-                    grn  = f'<span style="color:#00ff87;margin-right:0.4rem">{icon}</span>' if lvl==1 else f'<span style="color:#333;margin-right:0.3rem">{icon}</span>'
+                    if lvl == 1:
+                        icon     = "◆"
+                        icon_col = "#00ff87"
+                        col      = "#ffffff"
+                        fw       = "800"
+                        fs       = "0.92rem"
+                        pad      = "0.55rem 0 0.2rem"
+                        border   = "border-top:1px solid #1a1a1a;margin-top:0.8rem;"
+                    elif lvl == 2:
+                        icon     = "▷"
+                        icon_col = "#4a8aff"
+                        col      = "#cccccc"
+                        fw       = "600"
+                        fs       = "0.86rem"
+                        pad      = "0.28rem 0"
+                        border   = ""
+                    else:
+                        icon     = "·"
+                        icon_col = "#444"
+                        col      = "#777777"
+                        fw       = "400"
+                        fs       = "0.8rem"
+                        pad      = "0.2rem 0"
+                        border   = ""
+
+                    item_id   = item["id"]
+                    item_name = item["name"]
                     wbs_rows += (
-                        f'<div style="font-family:DM Mono,monospace;color:{col};'
-                        f'font-weight:{fw};font-size:{fs};padding:0.22rem 0">'
-                        f'{ind}{grn}<span style="color:#444;margin-right:0.5rem;font-size:0.75em">{item["id"]}</span>'
-                        f'{item["name"]}</div>\n'
+                        '<div style="font-family:\'DM Mono\',monospace;color:{col};'
+                        'font-weight:{fw};font-size:{fs};padding:{pad};{border}{indent}">'
+                        '<span style="color:{icon_col};margin-right:0.4rem;font-size:0.8em">{icon}</span>'
+                        '<span style="color:#2a2a2a;margin-right:0.5rem;font-size:0.75em">{id}</span>'
+                        '{name}</div>\n'
+                    ).format(
+                        col=col, fw=fw, fs=fs, pad=pad, border=border,
+                        indent=indent, icon_col=icon_col, icon=icon,
+                        id=item_id, name=item_name
                     )
                 st.markdown(
-                    f'<div style="background:#0b0b0b;border:1px solid #1a1a1a;'
-                    f'border-radius:10px;padding:1.5rem 2rem">{wbs_rows}</div>',
+                    '<div style="background:#0b0b0b;border:1px solid #1a1a1a;'
+                    'border-radius:10px;padding:1.5rem 2.5rem">' + wbs_rows + '</div>',
                     unsafe_allow_html=True,
                 )
 
