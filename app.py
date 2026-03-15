@@ -321,6 +321,9 @@ hr { border-color: #1a1a1a !important; margin: 1.5rem 0 !important; }
     padding-left: 1.5rem !important;
     margin-bottom: 0.8rem !important;
 }
+.stMarkdown blockquote {
+    display: none !important;
+}
 
 /* ═══════════════════════════════════════
    LANDING
