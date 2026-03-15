@@ -47,13 +47,13 @@ def calculate_cpm(tasks):
         nd = G.nodes[tid]
         is_crit = abs(nd["float"]) < 0.01
         rows.append({
-            "ID": tid, "Task": nd["name"], "Phase": nd.get("phase",""),
+            "Task ID": tid, "Task Name": nd["name"], "Phase": nd.get("phase",""),
             "Resource": nd.get("resource",""),
             "Opt": nd["optimistic"], "ML": nd["most_likely"], "Pess": nd["pessimistic"],
-            "PERT (d)": nd["duration"], "Variance": nd["variance"],
+            "PERT Duration (d)": nd["duration"], "Variance": nd["variance"],
             "ES": nd["ES"], "EF": nd["EF"], "LS": nd["LS"], "LF": nd["LF"],
             "Float (d)": nd["float"],
-            "Path": "🔴 Critical" if is_crit else "🟢 Non-Critical",
+            "Critical": "🔴 Critical" if is_crit else "🟢 Non-Critical",
         })
     return G, pd.DataFrame(rows), project_duration, critical_path
 
