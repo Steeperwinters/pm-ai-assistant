@@ -14,11 +14,16 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# ── Load API key from Streamlit Secrets (invisible to users) ───────────────────
+API_KEY = st.secrets.get("GROQ_API_KEY", "")
+if not API_KEY:
+    st.error("⚠️ API key not configured. Please contact the app administrator.")
+    st.stop()
+
 # ── Custom CSS ─────────────────────────────────────────────────────────────────
 st.markdown(
     """
 <style>
-/* Header banner */
 .pm-header {
     background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 60%, #7c3aed 100%);
     padding: 1.6rem 2rem;
@@ -30,7 +35,6 @@ st.markdown(
 .pm-header h1 { color: white; margin: 0 0 0.3rem; font-size: 2rem; }
 .pm-header p  { color: rgba(255,255,255,0.82); margin: 0; font-size: 0.95rem; }
 
-/* Disclaimer / warning box */
 .warn-box {
     background: linear-gradient(135deg, #78350f, #b45309);
     border-left: 4px solid #f59e0b;
@@ -42,11 +46,6 @@ st.markdown(
     line-height: 1.5;
 }
 
-/* Progress steps in sidebar */
-.step-done  { color: #4ade80; }
-.step-pend  { color: #64748b; }
-
-/* Section dividers */
 .section-title {
     font-size: 1.1rem;
     font-weight: 700;
@@ -66,23 +65,17 @@ for key in ["scope", "risks", "wbs_data", "cpm_results", "project_name",
     if key not in st.session_state:
         st.session_state[key] = None
 
-
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## 🤖 AI PM Assistant")
+    st.markdown("*Powered by AI — no setup required*")
     st.markdown("---")
 
-    st.markdown("### 🔑 Gemini API Key (Free)")
-    api_key = st.text_input(
-        "Anthropic API Key",
-        type="password",
-        placeholder="AIza...",
-        help="Get yours FREE at aistudio.google.com",
-    )
-
-    st.markdown("---")
     st.markdown("### 📋 Project Info")
-    project_name = st.text_input("Project Name", placeholder="e.g. Hospital Management System")
+    project_name = st.text_input(
+        "Project Name",
+        placeholder="e.g. Hospital Management System"
+    )
     project_description = st.text_area(
         "Project Description",
         placeholder=(
@@ -93,13 +86,13 @@ with st.sidebar:
             "• Key goals\n"
             "• Rough timeline & budget"
         ),
-        height=220,
+        height=240,
     )
 
     st.markdown("---")
     st.markdown("### 🚀 Actions")
 
-    can_scope = bool(api_key and project_name and project_description)
+    can_scope = bool(project_name and project_description)
     gen_scope_btn = st.button(
         "📋  Step 1 — Generate Scope",
         use_container_width=True,
@@ -116,11 +109,11 @@ with st.sidebar:
     st.markdown("### 📊 Progress")
     steps = [
         ("Scope Statement", st.session_state.scope is not None),
-        ("Risk Register", st.session_state.risks is not None),
-        ("WBS / CPM", st.session_state.cpm_results is not None),
+        ("Risk Register",   st.session_state.risks is not None),
+        ("WBS / CPM",       st.session_state.cpm_results is not None),
     ]
     for label, done in steps:
-        icon = "✅" if done else "⬜"
+        icon   = "✅" if done else "⬜"
         colour = "#4ade80" if done else "#475569"
         st.markdown(
             f'<span style="color:{colour}">{icon} {label}</span>',
@@ -128,8 +121,7 @@ with st.sidebar:
         )
 
     if not can_scope:
-        st.info("Fill in your API key, project name and description above to begin.")
-
+        st.info("Enter a project name and description above to begin.")
 
 # ── Header ─────────────────────────────────────────────────────────────────────
 st.markdown(
@@ -146,10 +138,9 @@ st.markdown(
 if gen_scope_btn:
     with st.spinner("✍️  Generating Scope Statement…"):
         try:
-            scope = generate_scope(api_key, project_name, project_description)
+            scope = generate_scope(API_KEY, project_name, project_description)
             st.session_state.scope = scope
             st.session_state.project_name = project_name
-            # Reset downstream state
             st.session_state.risks = None
             st.session_state.wbs_data = None
             st.session_state.cpm_results = None
@@ -160,14 +151,13 @@ if gen_scope_btn:
 if gen_risks_btn:
     with st.spinner("🔍  Identifying and assessing risks…"):
         try:
-            risks = generate_risks(api_key, st.session_state.scope)
+            risks = generate_risks(API_KEY, st.session_state.scope)
             st.session_state.risks = risks
             st.session_state.wbs_data = None
             st.session_state.cpm_results = None
             st.success("✅ Risk Register generated — see the second tab.")
         except Exception as exc:
             st.error(f"❌ Could not generate risks: {exc}")
-
 
 # ── Tabs ───────────────────────────────────────────────────────────────────────
 tab1, tab2, tab3 = st.tabs(
@@ -187,9 +177,7 @@ with tab1:
             mime="text/plain",
         )
     else:
-        st.info(
-            "👈  Fill in the sidebar and click **Step 1 — Generate Scope** to begin."
-        )
+        st.info("👈  Fill in the sidebar and click **Step 1 — Generate Scope** to begin.")
         with st.expander("What is a Scope Statement?"):
             st.markdown(
                 """
@@ -204,7 +192,6 @@ It prevents scope creep and aligns all stakeholders before work begins.
 """
             )
 
-
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 2 — RISK REGISTER
 # ══════════════════════════════════════════════════════════════════════════════
@@ -212,16 +199,15 @@ with tab2:
     if st.session_state.risks:
         risks = st.session_state.risks
 
-        # Summary metrics
         high = sum(1 for r in risks if r["risk_score"] == "High")
         med  = sum(1 for r in risks if r["risk_score"] == "Medium")
         low  = sum(1 for r in risks if r["risk_score"] == "Low")
 
         col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Total Risks",   len(risks))
-        col2.metric("🔴 High",       high)
-        col3.metric("🟡 Medium",     med)
-        col4.metric("🟢 Low",        low)
+        col1.metric("Total Risks", len(risks))
+        col2.metric("🔴 High",     high)
+        col3.metric("🟡 Medium",   med)
+        col4.metric("🟢 Low",      low)
 
         st.markdown("---")
 
@@ -233,24 +219,19 @@ with tab2:
             }
             return mapping.get(val, "")
 
-        df = pd.DataFrame(risks).rename(
-            columns={
-                "risk_id": "ID", "risk_name": "Risk Name",
-                "category": "Category", "description": "Description",
-                "likelihood": "Likelihood", "impact": "Impact",
-                "risk_score": "Risk Score",
-                "mitigation_strategy": "Mitigation Strategy",
-            }
-        )
-        styled = df.style.applymap(
-            _colour_score, subset=["Likelihood", "Impact", "Risk Score"]
-        )
+        df = pd.DataFrame(risks).rename(columns={
+            "risk_id": "ID", "risk_name": "Risk Name",
+            "category": "Category", "description": "Description",
+            "likelihood": "Likelihood", "impact": "Impact",
+            "risk_score": "Risk Score",
+            "mitigation_strategy": "Mitigation Strategy",
+        })
+        styled = df.style.applymap(_colour_score, subset=["Likelihood", "Impact", "Risk Score"])
         st.dataframe(styled, use_container_width=True, height=420)
 
-        csv = df.to_csv(index=False)
         st.download_button(
             "⬇️  Download Risk Register (.csv)",
-            data=csv,
+            data=df.to_csv(index=False),
             file_name=f"{st.session_state.project_name}_risk_register.csv",
             mime="text/csv",
         )
@@ -260,7 +241,6 @@ with tab2:
     else:
         st.info("📋  Please generate a Scope Statement first (Tab 1).")
 
-
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 3 — WBS & CPM/PERT
 # ══════════════════════════════════════════════════════════════════════════════
@@ -268,7 +248,6 @@ with tab3:
     if not st.session_state.risks:
         st.info("⚠️  Please complete the Scope Statement and Risk Register first.")
     else:
-        # ── AI disclaimer ──────────────────────────────────────────────────────
         st.markdown(
             """
 <div class="warn-box">
@@ -284,7 +263,6 @@ Always validate and adjust with your project team before sharing with stakeholde
             unsafe_allow_html=True,
         )
 
-        # ── Mode selection ─────────────────────────────────────────────────────
         st.markdown("### How would you like to build the WBS & Timeline?")
         mode = st.radio(
             "",
@@ -292,15 +270,13 @@ Always validate and adjust with your project team before sharing with stakeholde
             horizontal=True,
         )
 
-        # ────────────────────────────────────────────────────────────────────────
-        # AI MODE
-        # ────────────────────────────────────────────────────────────────────────
+        # ── AI MODE ────────────────────────────────────────────────────────────
         if mode.startswith("🤖"):
             if st.button("🤖  Generate AI WBS & CPM/PERT", type="primary"):
                 with st.spinner("🧠  Building WBS and calculating critical path…"):
                     try:
                         wbs_data = generate_wbs(
-                            api_key,
+                            API_KEY,
                             st.session_state.scope,
                             st.session_state.project_name,
                         )
@@ -315,9 +291,7 @@ Always validate and adjust with your project team before sharing with stakeholde
                     except Exception as exc:
                         st.error(f"❌  Error: {exc}")
 
-        # ────────────────────────────────────────────────────────────────────────
-        # MANUAL MODE
-        # ────────────────────────────────────────────────────────────────────────
+        # ── MANUAL MODE ────────────────────────────────────────────────────────
         else:
             st.markdown("#### ✏️  Enter Your Tasks")
             st.caption(
@@ -338,13 +312,11 @@ Always validate and adjust with your project team before sharing with stakeholde
 
             if st.button("➕  Add Task"):
                 n = len(st.session_state.manual_tasks_list) + 1
-                st.session_state.manual_tasks_list.append(
-                    {
-                        "task_id": f"T{n}", "task_name": "",
-                        "optimistic": 1, "most_likely": 3, "pessimistic": 6,
-                        "dependencies": "",
-                    }
-                )
+                st.session_state.manual_tasks_list.append({
+                    "task_id": f"T{n}", "task_name": "",
+                    "optimistic": 1, "most_likely": 3, "pessimistic": 6,
+                    "dependencies": "",
+                })
 
             updated = []
             for i, task in enumerate(st.session_state.manual_tasks_list):
@@ -353,34 +325,23 @@ Always validate and adjust with your project team before sharing with stakeholde
                     c1, c2 = st.columns([1, 3])
                     tid   = c1.text_input("Task ID",   value=task["task_id"],   key=f"tid_{i}")
                     tname = c2.text_input("Task Name", value=task["task_name"], key=f"tname_{i}")
-
                     c3, c4, c5, c6 = st.columns(4)
                     opt  = c3.number_input("Optimistic (d)",  min_value=1, value=int(task["optimistic"]),  key=f"opt_{i}")
                     ml   = c4.number_input("Most Likely (d)", min_value=1, value=int(task["most_likely"]), key=f"ml_{i}")
                     pess = c5.number_input("Pessimistic (d)", min_value=1, value=int(task["pessimistic"]), key=f"pess_{i}")
                     deps = c6.text_input("Dependencies",      value=task["dependencies"],                  key=f"deps_{i}")
+                    updated.append({
+                        "task_id": tid.strip(), "task_name": tname.strip(),
+                        "optimistic": opt, "most_likely": ml, "pessimistic": pess,
+                        "dependencies": deps,
+                    })
 
-                    updated.append(
-                        {
-                            "task_id": tid.strip(), "task_name": tname.strip(),
-                            "optimistic": opt, "most_likely": ml, "pessimistic": pess,
-                            "dependencies": deps,
-                        }
-                    )
-
-            # Persist form state
             st.session_state.manual_tasks_list = updated
 
             if st.button("📊  Calculate CPM / PERT", type="primary"):
                 parsed = [
-                    {
-                        **t,
-                        "dependencies": [
-                            d.strip() for d in t["dependencies"].split(",") if d.strip()
-                        ],
-                    }
-                    for t in updated
-                    if t["task_name"] and t["task_id"]
+                    {**t, "dependencies": [d.strip() for d in t["dependencies"].split(",") if d.strip()]}
+                    for t in updated if t["task_name"] and t["task_id"]
                 ]
                 if len(parsed) < 2:
                     st.warning("Please enter at least 2 named tasks.")
@@ -397,14 +358,12 @@ Always validate and adjust with your project team before sharing with stakeholde
                     except Exception as exc:
                         st.error(f"❌  {exc}")
 
-        # ── WBS Display (AI mode only) ──────────────────────────────────────────
+        # ── WBS Display ────────────────────────────────────────────────────────
         if st.session_state.wbs_data:
             st.markdown("---")
             st.markdown('<div class="section-title">📁  Work Breakdown Structure</div>', unsafe_allow_html=True)
-
-            wbs = st.session_state.wbs_data["wbs"]
             icons = {1: "📁", 2: "📂", 3: "📄"}
-            for item in wbs:
+            for item in st.session_state.wbs_data["wbs"]:
                 indent = "&nbsp;" * 6 * (item["level"] - 1)
                 icon   = icons.get(item["level"], "📄")
                 weight = "bold" if item["level"] == 1 else "normal"
@@ -417,7 +376,6 @@ Always validate and adjust with your project team before sharing with stakeholde
         # ── CPM Results ────────────────────────────────────────────────────────
         if st.session_state.cpm_results:
             cpm = st.session_state.cpm_results
-
             st.markdown("---")
             st.markdown('<div class="section-title">📊  CPM / PERT Results</div>', unsafe_allow_html=True)
 
@@ -426,44 +384,35 @@ Always validate and adjust with your project team before sharing with stakeholde
             col2.metric("🔴  Critical Tasks",      len(cpm["critical_path"]))
             col3.metric("📋  Total Tasks",         len(cpm["tasks"]))
 
-            cp_str = "  →  ".join(cpm["critical_path"])
-            st.markdown(f"**Critical Path:** `{cp_str}`")
+            st.markdown(f"**Critical Path:** `{'  →  '.join(cpm['critical_path'])}`")
 
-            # Task table
             st.markdown("#### Task Analysis Table")
-
             def _highlight_critical(row):
                 if row["Critical"] == "✅ Yes":
                     return ["background-color:#450a0a; color:#fca5a5"] * len(row)
                 return [""] * len(row)
 
-            styled_df = cpm["df"].style.apply(_highlight_critical, axis=1)
-            st.dataframe(styled_df, use_container_width=True, height=380)
+            st.dataframe(cpm["df"].style.apply(_highlight_critical, axis=1),
+                         use_container_width=True, height=380)
 
-            # Gantt
             st.markdown("#### 📅  Gantt Chart (Critical Path)")
             fig = plot_gantt(cpm["G"], cpm["tasks"])
             st.pyplot(fig)
             plt.close(fig)
 
-            # Downloads
-            dl_col1, dl_col2 = st.columns(2)
-            csv = cpm["df"].to_csv(index=False)
-            dl_col1.download_button(
+            dl1, dl2 = st.columns(2)
+            dl1.download_button(
                 "⬇️  Download CPM Table (.csv)",
-                data=csv,
+                data=cpm["df"].to_csv(index=False),
                 file_name=f"{st.session_state.project_name}_cpm_analysis.csv",
                 mime="text/csv",
             )
-
-            # Save Gantt as PNG for download
             buf = io.BytesIO()
             fig2 = plot_gantt(cpm["G"], cpm["tasks"])
-            fig2.savefig(buf, format="png", dpi=150, bbox_inches="tight",
-                         facecolor="#0e1117")
+            fig2.savefig(buf, format="png", dpi=150, bbox_inches="tight", facecolor="#0e1117")
             plt.close(fig2)
             buf.seek(0)
-            dl_col2.download_button(
+            dl2.download_button(
                 "⬇️  Download Gantt Chart (.png)",
                 data=buf,
                 file_name=f"{st.session_state.project_name}_gantt.png",
