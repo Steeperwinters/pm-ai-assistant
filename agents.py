@@ -9,13 +9,13 @@ def _clean_json(text: str) -> str:
     return text.strip()
 
 
-def _ask(api_key: str, prompt: str, max_tokens: int = 3000) -> str:
+def _ask(api_key: str, prompt: str, max_tokens: int = 3500) -> str:
     client = Groq(api_key=api_key)
     response = client.chat.completions.create(
         model="llama-3.3-70b-versatile",
         messages=[{"role": "user", "content": prompt}],
         max_tokens=max_tokens,
-        temperature=0.7,
+        temperature=0.5,
     )
     return response.choices[0].message.content
 
@@ -23,126 +23,127 @@ def _ask(api_key: str, prompt: str, max_tokens: int = 3000) -> str:
 # ── Scope Agent ────────────────────────────────────────────────────────────────
 
 def generate_scope(api_key: str, project_name: str, description: str) -> str:
-    prompt = f"""You are a certified Project Management Professional (PMP).
-Based on the project description below, produce a complete, formal Project Scope Statement.
+    prompt = f"""You are a certified Project Management Professional (PMP) with 20 years experience.
+Based on the project below, produce a detailed, formal Project Scope Statement.
 
-Use the following structure exactly (markdown headers and bullet points):
-
-## Project Scope Statement
+Use EXACTLY this markdown structure. Do NOT include a top-level "## Project Scope Statement" heading:
 
 **Project Title:** {project_name}
 
 ### 1. Project Purpose & Justification
-Why is this project being undertaken? What business problem does it solve?
+[2-3 sentences explaining WHY this project exists and what business/social problem it solves]
 
 ### 2. Project Objectives (SMART)
-List 4-6 SMART goals (Specific, Measurable, Achievable, Relevant, Time-bound).
+[5-6 bullet points, each a specific measurable objective with numbers and timeframes]
 
 ### 3. Project Deliverables
-List all tangible outputs the project must produce.
+[Numbered list of all tangible outputs]
 
 ### 4. In-Scope Items
-What work IS included in this project?
+[Bullet list of work explicitly INCLUDED]
 
 ### 5. Out-of-Scope Items
-What is explicitly NOT included?
+[Bullet list of work explicitly EXCLUDED — be specific to avoid scope creep]
 
 ### 6. Constraints
-Budget, time, technology, regulatory, or resource limitations.
+[Bullet list: budget, time, technology, regulatory, resource limitations from the input]
 
 ### 7. Assumptions
-What are we assuming to be true for planning purposes?
+[Bullet list of planning assumptions]
 
 ### 8. Key Stakeholders
-Who is involved or affected by this project?
+[Table or list: Name/Role and their interest]
 
-### 9. Success Criteria
-How will the team know the project succeeded?
+### 9. Acceptance Criteria & Success Metrics
+[How will success be measured? Include KPIs]
 
-Be thorough, professional, and realistic. Infer sensible details from the description.
+Be thorough, specific, and realistic. Infer sensible details where needed.
 
----
 Project Description:
 {description}"""
 
-    return _ask(api_key, prompt, max_tokens=2500)
+    return _ask(api_key, prompt, 2800)
 
 
 # ── Risk Agent ─────────────────────────────────────────────────────────────────
 
 def generate_risks(api_key: str, scope: str) -> list:
-    prompt = f"""You are a senior Risk Manager with PMP and PMI-RMP certifications.
-Analyse the project scope statement and identify 10-12 realistic risks.
+    prompt = f"""You are a senior Risk Manager (PMP + PMI-RMP certified).
+Analyse the scope statement and identify 12 realistic, diverse risks.
 
-Return ONLY a valid JSON array with no markdown, no explanation, no code fences.
-Each element must follow this schema exactly:
+Return ONLY a valid JSON array. No markdown, no explanation.
+Schema:
 {{
   "risk_id": "R1",
-  "risk_name": "Short descriptive name",
+  "risk_name": "Short name (5 words max)",
   "category": "Technical",
-  "description": "What could go wrong and why.",
+  "description": "2-sentence description of what could go wrong and consequences.",
   "likelihood": "High",
   "impact": "Medium",
   "risk_score": "High",
-  "mitigation_strategy": "Concrete steps to reduce likelihood or impact."
+  "mitigation_strategy": "2-3 concrete actions to reduce likelihood or impact.",
+  "contingency_plan": "What to do if the risk materialises."
 }}
 
-Allowed values:
-  category   -> Technical | Financial | Schedule | Resource | External | Organizational
-  likelihood -> High | Medium | Low
-  impact     -> High | Medium | Low
-  risk_score -> High x High=High | High x Med=High | Med x Med=Medium | Low x any=Low
+Rules:
+  category   → Technical | Financial | Schedule | Resource | External | Organizational | Legal
+  likelihood → High | Medium | Low
+  impact     → High | Medium | Low
+  risk_score → High×High=High | High×Med=High | Med×Med=Medium | Low×anything=Low
 
-Return ONLY the JSON array, nothing else.
+Return ONLY the JSON array.
 
----
-Project Scope Statement:
+Scope Statement:
 {scope}"""
 
-    raw = _ask(api_key, prompt, max_tokens=3000)
+    raw = _ask(api_key, prompt, 3500)
     return json.loads(_clean_json(raw))
 
 
 # ── WBS / CPM Agent ────────────────────────────────────────────────────────────
 
 def generate_wbs(api_key: str, scope: str, project_name: str) -> dict:
-    prompt = f"""You are an expert Project Manager building a Work Breakdown Structure and task network for CPM/PERT analysis.
+    prompt = f"""You are a Principal Project Manager. Build a detailed WBS and CPM/PERT network.
 
-Return ONLY a valid JSON object with no markdown, no explanation, no code fences.
-Use this exact schema:
+Return ONLY valid JSON. No markdown. No explanation. No code fences.
+Schema:
 {{
   "wbs": [
-    {{"id": "1",     "name": "Phase name",        "level": 1}},
-    {{"id": "1.1",   "name": "Work package name",  "level": 2}},
-    {{"id": "1.1.1", "name": "Task name",           "level": 3}}
+    {{"id": "1",     "name": "Phase Name",       "level": 1}},
+    {{"id": "1.1",   "name": "Work Package",      "level": 2}},
+    {{"id": "1.1.1", "name": "Task",               "level": 3}}
   ],
   "tasks": [
     {{
       "task_id":      "T1",
-      "task_name":    "Short clear task name",
+      "task_name":    "Clear descriptive task name",
       "wbs_ref":      "1.1.1",
-      "optimistic":   2,
-      "most_likely":  4,
-      "pessimistic":  8,
+      "phase":        "Initiation",
+      "optimistic":   3,
+      "most_likely":  5,
+      "pessimistic":  9,
       "dependencies": [],
-      "resource":     "Role responsible"
+      "resource":     "Role title",
+      "deliverable":  "What this task produces"
     }}
   ]
 }}
 
-Hard rules:
-- Create exactly 13-15 tasks covering the full project lifecycle.
-- All durations are integers in DAYS; optimistic < most_likely < pessimistic always.
-- dependencies is a list of task_ids that must finish before this task starts.
-- First task has empty dependencies [].
-- NO circular dependencies.
-- task_ids must be T1, T2, T3 etc sequentially.
-- Return ONLY valid JSON, nothing else.
+STRICT RULES:
+- Create exactly 15-18 tasks covering: Initiation, Planning, Execution, Monitoring & Control, Closure
+- Cover ALL major work identified in the scope — be thorough and project-specific
+- Durations are integers in DAYS; optimistic < most_likely < pessimistic ALWAYS
+- At least 30% of tasks must have dependencies creating parallel paths (not just a single chain)
+- Create BOTH critical path tasks AND non-critical parallel tasks so float exists
+- First 1-2 tasks have empty dependencies []
+- NO circular dependencies — verify carefully
+- task_ids: T1, T2, T3 ... sequentially
+- Include at least 3 parallel work streams where tasks can happen simultaneously
+- Return ONLY valid JSON
 
-Project Name: {project_name}
----
-Project Scope Statement:
+Project: {project_name}
+Scope:
 {scope}"""
 
-    raw = _ask(api_key, prompt, max_tokens=3500)
+    raw = _ask(api_key, prompt, 4000)
     return json.loads(_clean_json(raw))
