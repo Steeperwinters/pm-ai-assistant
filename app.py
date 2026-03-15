@@ -3,930 +3,1275 @@ import pandas as pd
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
-import io
-import datetime
+import io, datetime, time
 
 from agents import generate_scope, generate_risks, generate_wbs
 from cpm_utils import calculate_cpm, plot_gantt
 
 # ── Page config ────────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="SMART PROJECT — AI Agent",
-    page_icon="⬡",
+    page_title="Smart Project — AI PM Agent",
+    page_icon="🧠",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
-# ── Load API key ───────────────────────────────────────────────────────────────
 API_KEY = st.secrets.get("GROQ_API_KEY", "")
 if not API_KEY:
-    st.error("⚠️ API key not configured. Contact the administrator.")
+    st.error("API key not configured.")
     st.stop()
 
-# ── CYBERPUNK CSS ──────────────────────────────────────────────────────────────
+# ── Session state ──────────────────────────────────────────────────────────────
+defaults = {
+    "screen": "landing",       # landing | wizard | dashboard
+    "wizard_step": 1,          # 1 | 2 | 3
+    "project_name": "",
+    "project_description": "",
+    "constraints": "",
+    "scope": None,
+    "risks": None,
+    "wbs_data": None,
+    "cpm_results": None,
+    "manual_tasks_list": None,
+    "active_tab": 0,
+}
+for k, v in defaults.items():
+    if k not in st.session_state:
+        st.session_state[k] = v
+
+# ══════════════════════════════════════════════════════════════════════════════
+# GLOBAL CSS
+# ══════════════════════════════════════════════════════════════════════════════
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&family=VT323&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&family=Bebas+Neue&display=swap');
 
-/* ── GLOBAL RESET ── */
-*, *::before, *::after { box-sizing: border-box; }
+/* ── RESET & BASE ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-/* ── ROOT VARS ── */
-:root {
-    --neon-green:  #00ff41;
-    --neon-cyan:   #00e5ff;
-    --neon-pink:   #ff0080;
-    --neon-yellow: #ffe600;
-    --dark-bg:     #000000;
-    --panel-bg:    #060606;
-    --panel-border:#0a2a0a;
-    --text-dim:    #4a7c59;
-    --text-mid:    #00cc33;
-    --scanline: rgba(0,255,65,0.03);
+html, body, .stApp {
+    background: #080808 !important;
+    color: #e8e8e8 !important;
+    font-family: 'Syne', sans-serif !important;
 }
 
-/* ── APP BACKGROUND ── */
-.stApp {
-    background-color: var(--dark-bg) !important;
-    background-image:
-        repeating-linear-gradient(
-            0deg,
-            transparent,
-            transparent 2px,
-            var(--scanline) 2px,
-            var(--scanline) 4px
-        ) !important;
-    font-family: 'Share Tech Mono', monospace !important;
+/* Hide streamlit chrome */
+#MainMenu, footer, header { visibility: hidden !important; }
+[data-testid="stSidebar"] { display: none !important; }
+.block-container { padding: 0 !important; max-width: 100% !important; }
+[data-testid="stDecoration"] { display: none !important; }
+
+/* ── TYPOGRAPHY SYSTEM ── */
+h1, h2, h3 { font-family: 'Syne', sans-serif !important; }
+
+.t-display {
+    font-family: 'Bebas Neue', sans-serif !important;
+    font-size: clamp(4rem, 10vw, 9rem);
+    line-height: 0.95;
+    letter-spacing: 0.02em;
+    color: #ffffff;
+}
+.t-display .accent { color: #00ff87; }
+
+.t-headline {
+    font-family: 'Syne', sans-serif !important;
+    font-size: 2rem;
+    font-weight: 800;
+    color: #ffffff;
+    letter-spacing: -0.02em;
 }
 
-/* ── SIDEBAR ── */
-[data-testid="stSidebar"] {
-    background-color: #020c02 !important;
-    border-right: 1px solid #00ff4133 !important;
-}
-[data-testid="stSidebar"] * {
-    font-family: 'Share Tech Mono', monospace !important;
-    color: var(--neon-green) !important;
-}
-[data-testid="stSidebar"] .stMarkdown p {
-    color: var(--text-mid) !important;
-    font-size: 0.8rem !important;
+.t-label {
+    font-family: 'DM Mono', monospace !important;
+    font-size: 0.7rem;
+    font-weight: 500;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: #00ff87;
 }
 
-/* ── ALL TEXT ── */
-.stApp p, .stApp li, .stApp span, .stApp div,
-.stApp label, .stApp .stMarkdown {
-    font-family: 'Share Tech Mono', monospace !important;
-    color: #aaffcc !important;
+.t-body {
+    font-family: 'DM Mono', monospace !important;
+    font-size: 0.875rem;
+    color: #888;
+    line-height: 1.7;
 }
 
-h1, h2, h3, h4 {
-    font-family: 'Orbitron', monospace !important;
-    color: var(--neon-green) !important;
-    letter-spacing: 0.08em !important;
+.t-mono {
+    font-family: 'DM Mono', monospace !important;
+    font-size: 0.85rem;
+    color: #ccc;
+    line-height: 1.8;
 }
 
 /* ── INPUTS ── */
-.stTextInput input, .stTextArea textarea {
-    background-color: #000800 !important;
-    border: 1px solid #00ff4155 !important;
-    border-radius: 0 !important;
-    color: var(--neon-green) !important;
-    font-family: 'Share Tech Mono', monospace !important;
+.stTextInput input, .stTextArea textarea, .stNumberInput input {
+    background: #111 !important;
+    border: 1px solid #222 !important;
+    border-radius: 6px !important;
+    color: #fff !important;
+    font-family: 'DM Mono', monospace !important;
     font-size: 0.9rem !important;
-    caret-color: var(--neon-green) !important;
-    outline: none !important;
+    padding: 0.75rem 1rem !important;
+    transition: border-color 0.2s !important;
 }
 .stTextInput input:focus, .stTextArea textarea:focus {
-    border-color: var(--neon-green) !important;
-    box-shadow: 0 0 12px #00ff4144 !important;
+    border-color: #00ff87 !important;
+    box-shadow: 0 0 0 2px #00ff8720 !important;
+    outline: none !important;
 }
 .stTextInput input::placeholder, .stTextArea textarea::placeholder {
-    color: #1a4d2a !important;
+    color: #333 !important;
+}
+.stTextInput label, .stTextArea label, .stNumberInput label, .stSelectbox label {
+    font-family: 'DM Mono', monospace !important;
+    font-size: 0.7rem !important;
+    letter-spacing: 0.15em !important;
+    text-transform: uppercase !important;
+    color: #555 !important;
+    margin-bottom: 0.4rem !important;
 }
 
-/* ── LABELS ── */
-.stTextInput label, .stTextArea label, .stNumberInput label,
-.stSelectbox label, .stRadio label {
-    color: var(--neon-cyan) !important;
-    font-family: 'Share Tech Mono', monospace !important;
+/* ── BUTTONS (Streamlit native) ── */
+.stButton > button {
+    background: transparent !important;
+    border: 1px solid #333 !important;
+    border-radius: 6px !important;
+    color: #ccc !important;
+    font-family: 'DM Mono', monospace !important;
     font-size: 0.75rem !important;
     letter-spacing: 0.1em !important;
     text-transform: uppercase !important;
-}
-
-/* ── BUTTONS ── */
-.stButton > button {
-    background: transparent !important;
-    border: 1px solid var(--neon-green) !important;
-    border-radius: 0 !important;
-    color: var(--neon-green) !important;
-    font-family: 'Orbitron', monospace !important;
-    font-size: 0.7rem !important;
-    font-weight: 700 !important;
-    letter-spacing: 0.12em !important;
-    text-transform: uppercase !important;
-    padding: 0.6rem 1rem !important;
-    transition: all 0.15s ease !important;
-    position: relative !important;
-    overflow: hidden !important;
+    padding: 0.6rem 1.4rem !important;
+    transition: all 0.2s !important;
+    cursor: pointer !important;
 }
 .stButton > button:hover {
-    background: #00ff4115 !important;
-    box-shadow: 0 0 20px #00ff4155, inset 0 0 20px #00ff4108 !important;
-    color: #ffffff !important;
+    border-color: #00ff87 !important;
+    color: #00ff87 !important;
+    background: #00ff8708 !important;
 }
 .stButton > button[kind="primary"] {
-    border-color: var(--neon-cyan) !important;
-    color: var(--neon-cyan) !important;
+    background: #00ff87 !important;
+    border-color: #00ff87 !important;
+    color: #000 !important;
+    font-weight: 700 !important;
 }
 .stButton > button[kind="primary"]:hover {
-    background: #00e5ff15 !important;
-    box-shadow: 0 0 20px #00e5ff55 !important;
-    color: #ffffff !important;
+    background: #00e676 !important;
+    border-color: #00e676 !important;
+    box-shadow: 0 0 24px #00ff8740 !important;
 }
 .stButton > button:disabled {
-    opacity: 0.3 !important;
+    opacity: 0.25 !important;
     cursor: not-allowed !important;
 }
 
 /* ── DOWNLOAD BUTTONS ── */
 .stDownloadButton > button {
     background: transparent !important;
-    border: 1px solid var(--neon-yellow) !important;
-    border-radius: 0 !important;
-    color: var(--neon-yellow) !important;
-    font-family: 'Orbitron', monospace !important;
-    font-size: 0.65rem !important;
+    border: 1px solid #333 !important;
+    border-radius: 6px !important;
+    color: #888 !important;
+    font-family: 'DM Mono', monospace !important;
+    font-size: 0.7rem !important;
     letter-spacing: 0.1em !important;
     text-transform: uppercase !important;
+    transition: all 0.2s !important;
 }
 .stDownloadButton > button:hover {
-    background: #ffe60015 !important;
-    box-shadow: 0 0 16px #ffe60055 !important;
+    border-color: #00ff87 !important;
+    color: #00ff87 !important;
+}
+
+/* ── METRICS ── */
+[data-testid="stMetric"] {
+    background: #111 !important;
+    border: 1px solid #1e1e1e !important;
+    border-top: 2px solid #00ff87 !important;
+    border-radius: 8px !important;
+    padding: 1.2rem 1.4rem !important;
+}
+[data-testid="stMetricLabel"] {
+    font-family: 'DM Mono', monospace !important;
+    font-size: 0.65rem !important;
+    letter-spacing: 0.15em !important;
+    text-transform: uppercase !important;
+    color: #444 !important;
+}
+[data-testid="stMetricValue"] {
+    font-family: 'Syne', sans-serif !important;
+    font-size: 1.8rem !important;
+    font-weight: 800 !important;
+    color: #fff !important;
 }
 
 /* ── TABS ── */
 .stTabs [data-baseweb="tab-list"] {
     background: transparent !important;
-    border-bottom: 1px solid #00ff4133 !important;
+    border-bottom: 1px solid #1a1a1a !important;
     gap: 0 !important;
+    padding: 0 !important;
 }
 .stTabs [data-baseweb="tab"] {
     background: transparent !important;
     border: none !important;
     border-bottom: 2px solid transparent !important;
-    color: var(--text-dim) !important;
-    font-family: 'Orbitron', monospace !important;
-    font-size: 0.65rem !important;
-    letter-spacing: 0.15em !important;
+    color: #444 !important;
+    font-family: 'DM Mono', monospace !important;
+    font-size: 0.72rem !important;
+    letter-spacing: 0.12em !important;
     text-transform: uppercase !important;
-    padding: 0.6rem 1.5rem !important;
+    padding: 1rem 2rem !important;
     transition: all 0.2s !important;
 }
 .stTabs [aria-selected="true"] {
-    color: var(--neon-green) !important;
-    border-bottom: 2px solid var(--neon-green) !important;
-    text-shadow: 0 0 10px var(--neon-green) !important;
+    color: #fff !important;
+    border-bottom: 2px solid #00ff87 !important;
 }
-.stTabs [data-baseweb="tab"]:hover {
-    color: var(--neon-green) !important;
-}
+.stTabs [data-baseweb="tab"]:hover { color: #aaa !important; }
 .stTabs [data-baseweb="tab-panel"] {
     background: transparent !important;
-    padding-top: 1.5rem !important;
-}
-
-/* ── METRICS ── */
-[data-testid="stMetric"] {
-    background: #000a00 !important;
-    border: 1px solid #00ff4122 !important;
-    border-left: 3px solid var(--neon-green) !important;
-    padding: 0.8rem 1rem !important;
-}
-[data-testid="stMetricLabel"] {
-    color: var(--text-dim) !important;
-    font-family: 'Share Tech Mono', monospace !important;
-    font-size: 0.7rem !important;
-    text-transform: uppercase !important;
-    letter-spacing: 0.1em !important;
-}
-[data-testid="stMetricValue"] {
-    color: var(--neon-green) !important;
-    font-family: 'Orbitron', monospace !important;
-    font-size: 1.4rem !important;
-    text-shadow: 0 0 10px var(--neon-green) !important;
+    padding-top: 0 !important;
 }
 
 /* ── DATAFRAME ── */
-[data-testid="stDataFrame"] {
-    border: 1px solid #00ff4122 !important;
+[data-testid="stDataFrame"] iframe {
+    border-radius: 8px !important;
 }
-.dvn-scroller { background: #000800 !important; }
 
 /* ── EXPANDER ── */
 .streamlit-expanderHeader {
-    background: #000a00 !important;
-    border: 1px solid #00ff4122 !important;
-    border-radius: 0 !important;
-    color: var(--neon-green) !important;
-    font-family: 'Share Tech Mono', monospace !important;
-}
-.streamlit-expanderContent {
-    background: #000500 !important;
-    border: 1px solid #00ff4111 !important;
-    border-top: none !important;
-}
-
-/* ── ALERTS / INFO ── */
-.stAlert {
-    background: #000a00 !important;
-    border: 1px solid #00ff4133 !important;
-    border-radius: 0 !important;
-    font-family: 'Share Tech Mono', monospace !important;
+    background: #111 !important;
+    border: 1px solid #1e1e1e !important;
+    border-radius: 6px !important;
+    color: #888 !important;
+    font-family: 'DM Mono', monospace !important;
+    font-size: 0.8rem !important;
 }
 
 /* ── RADIO ── */
+.stRadio > div { gap: 1rem !important; }
 .stRadio [data-baseweb="radio"] {
-    font-family: 'Share Tech Mono', monospace !important;
-    color: var(--neon-green) !important;
+    font-family: 'DM Mono', monospace !important;
+    font-size: 0.82rem !important;
+    color: #888 !important;
 }
 
-/* ── NUMBER INPUT ── */
-.stNumberInput input {
-    background: #000800 !important;
-    border: 1px solid #00ff4133 !important;
-    border-radius: 0 !important;
-    color: var(--neon-green) !important;
-    font-family: 'Share Tech Mono', monospace !important;
-}
-
-/* ── SPINNER ── */
-.stSpinner > div {
-    border-top-color: var(--neon-green) !important;
+/* ── ALERTS ── */
+.stAlert {
+    background: #111 !important;
+    border-radius: 8px !important;
+    font-family: 'DM Mono', monospace !important;
+    font-size: 0.82rem !important;
+    border: 1px solid #1e1e1e !important;
 }
 
 /* ── SCROLLBAR ── */
-::-webkit-scrollbar { width: 4px; height: 4px; }
-::-webkit-scrollbar-track { background: #000; }
-::-webkit-scrollbar-thumb { background: #00ff4133; }
-::-webkit-scrollbar-thumb:hover { background: var(--neon-green); }
+::-webkit-scrollbar { width: 3px; height: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #222; border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: #00ff87; }
 
-/* ── CUSTOM COMPONENTS ── */
-.cyber-header {
-    border: 1px solid #00ff4133;
-    padding: 2.5rem 2rem 2rem;
-    margin-bottom: 2rem;
-    position: relative;
-    background: #000500;
-    overflow: hidden;
-}
-.cyber-header::before {
-    content: '';
-    position: absolute;
-    top: 0; left: 0; right: 0;
-    height: 2px;
-    background: linear-gradient(90deg, transparent, var(--neon-green), var(--neon-cyan), transparent);
-    animation: scanH 3s linear infinite;
-}
-.cyber-header::after {
-    content: '';
-    position: absolute;
-    bottom: 0; left: 0; right: 0;
-    height: 1px;
-    background: linear-gradient(90deg, transparent, #00ff4133, transparent);
-}
-@keyframes scanH {
-    0%   { transform: translateX(-100%); }
-    100% { transform: translateX(100%); }
-}
+/* ── DIVIDERS ── */
+hr { border-color: #1a1a1a !important; margin: 2rem 0 !important; }
 
-.cyber-logo {
-    font-family: 'Orbitron', monospace;
-    font-size: 3rem;
-    font-weight: 900;
-    color: var(--neon-green);
-    text-shadow: 0 0 20px var(--neon-green), 0 0 60px #00ff4155;
-    letter-spacing: 0.2em;
-    line-height: 1;
-    margin-bottom: 0.3rem;
-}
-.cyber-logo span { color: var(--neon-cyan); }
-
-.cyber-tagline {
-    font-family: 'Share Tech Mono', monospace;
-    color: var(--text-mid);
-    font-size: 0.85rem;
-    letter-spacing: 0.15em;
-    text-transform: uppercase;
-    margin-bottom: 1rem;
-}
-
-.cyber-desc {
-    font-family: 'Share Tech Mono', monospace;
-    color: #4a9960;
-    font-size: 0.78rem;
-    letter-spacing: 0.05em;
-    border-left: 2px solid var(--neon-green);
-    padding-left: 1rem;
-    line-height: 1.8;
-}
-
-.tag-pill {
-    display: inline-block;
-    border: 1px solid var(--neon-cyan);
-    color: var(--neon-cyan);
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 0.65rem;
-    padding: 0.15rem 0.6rem;
-    margin-right: 0.4rem;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-}
-
-.corner-tl {
-    position: absolute;
-    top: 8px; left: 8px;
-    width: 16px; height: 16px;
-    border-top: 2px solid var(--neon-green);
-    border-left: 2px solid var(--neon-green);
-}
-.corner-tr {
-    position: absolute;
-    top: 8px; right: 8px;
-    width: 16px; height: 16px;
-    border-top: 2px solid var(--neon-green);
-    border-right: 2px solid var(--neon-green);
-}
-.corner-bl {
-    position: absolute;
-    bottom: 8px; left: 8px;
-    width: 16px; height: 16px;
-    border-bottom: 2px solid var(--neon-green);
-    border-left: 2px solid var(--neon-green);
-}
-.corner-br {
-    position: absolute;
-    bottom: 8px; right: 8px;
-    width: 16px; height: 16px;
-    border-bottom: 2px solid var(--neon-green);
-    border-right: 2px solid var(--neon-green);
-}
-
-.section-head {
-    font-family: 'Orbitron', monospace;
-    font-size: 0.7rem;
-    font-weight: 700;
-    color: var(--neon-cyan);
-    letter-spacing: 0.2em;
-    text-transform: uppercase;
-    border-bottom: 1px solid #00e5ff22;
-    padding-bottom: 0.5rem;
-    margin: 1.5rem 0 1rem;
-}
-
-.warn-cyber {
-    background: #0a0400;
-    border: 1px solid #ffe60033;
-    border-left: 3px solid var(--neon-yellow);
-    padding: 1rem 1.2rem;
-    margin: 1rem 0 1.5rem;
-    font-family: 'Share Tech Mono', monospace;
-    color: #ffe600aa;
-    font-size: 0.8rem;
-    line-height: 1.7;
-    position: relative;
-}
-.warn-cyber strong { color: var(--neon-yellow); }
-
-.status-ok   { color: var(--neon-green)  !important; }
-.status-pend { color: #1a3a1a            !important; }
-
-.prompt-line {
-    font-family: 'VT323', monospace;
-    color: var(--neon-green);
-    font-size: 1rem;
-    letter-spacing: 0.05em;
-}
-.prompt-line::before { content: '> '; color: var(--neon-cyan); }
-
-@keyframes blink {
-    0%, 100% { opacity: 1; }
-    50%       { opacity: 0; }
-}
-.cursor {
-    display: inline-block;
-    width: 8px; height: 1em;
-    background: var(--neon-green);
-    animation: blink 1s step-end infinite;
-    vertical-align: text-bottom;
-    margin-left: 2px;
-}
-
-@keyframes glitch {
-    0%  { text-shadow: 0 0 20px var(--neon-green), 0 0 60px #00ff4155; transform: translate(0); }
-    2%  { text-shadow: -2px 0 var(--neon-pink), 2px 0 var(--neon-cyan); transform: translate(-1px, 1px); }
-    4%  { text-shadow: 0 0 20px var(--neon-green), 0 0 60px #00ff4155; transform: translate(0); }
-    96% { text-shadow: 0 0 20px var(--neon-green), 0 0 60px #00ff4155; transform: translate(0); }
-    98% { text-shadow: 2px 0 var(--neon-pink), -2px 0 var(--neon-cyan); transform: translate(1px, -1px); }
-    100%{ text-shadow: 0 0 20px var(--neon-green), 0 0 60px #00ff4155; transform: translate(0); }
-}
-.glitch { animation: glitch 4s infinite; }
-
-/* sidebar branding */
-.sidebar-brand {
-    font-family: 'Orbitron', monospace;
-    font-size: 1.1rem;
-    font-weight: 900;
-    color: var(--neon-green) !important;
-    letter-spacing: 0.15em;
-    text-shadow: 0 0 10px var(--neon-green);
-}
-.sidebar-sub {
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 0.65rem;
-    color: var(--text-dim) !important;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-}
+/* ── SPINNER ── */
+.stSpinner > div { border-top-color: #00ff87 !important; }
 </style>
 """, unsafe_allow_html=True)
 
-# ── Session state ──────────────────────────────────────────────────────────────
-for k in ["scope", "risks", "wbs_data", "cpm_results",
-          "project_name", "manual_tasks_list"]:
-    if k not in st.session_state:
-        st.session_state[k] = None
 
 # ══════════════════════════════════════════════════════════════════════════════
-# SIDEBAR
+# HELPER: nav buttons
 # ══════════════════════════════════════════════════════════════════════════════
-with st.sidebar:
+def go(screen, **kwargs):
+    st.session_state.screen = screen
+    for k, v in kwargs.items():
+        st.session_state[k] = v
+    st.rerun()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SCREEN 1 — LANDING
+# ══════════════════════════════════════════════════════════════════════════════
+def render_landing():
     st.markdown("""
-<div style="padding:1rem 0 0.5rem">
-  <div class="sidebar-brand">⬡ SMART PROJECT</div>
-  <div class="sidebar-sub">AI AGENT v1.0 // ONLINE</div>
-</div>
-<hr style="border-color:#00ff4122; margin:0.5rem 0 1rem"/>
-""", unsafe_allow_html=True)
+<style>
+/* Landing-specific overrides */
+.landing-wrap {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 4rem 2rem;
+    position: relative;
+    overflow: hidden;
+}
 
-    st.markdown('<div class="section-head">// PROJECT INPUT</div>', unsafe_allow_html=True)
+/* Animated grid background */
+.landing-wrap::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+        linear-gradient(#00ff8706 1px, transparent 1px),
+        linear-gradient(90deg, #00ff8706 1px, transparent 1px);
+    background-size: 60px 60px;
+    mask-image: radial-gradient(ellipse 80% 60% at 50% 50%, black 40%, transparent 100%);
+    pointer-events: none;
+    z-index: 0;
+}
 
-    project_name = st.text_input(
-        "PROJECT NAME",
-        placeholder="e.g. Hospital Management System",
-    )
-    project_description = st.text_area(
-        "PROJECT DESCRIPTION",
-        placeholder=(
-            "Describe your project...\n\n"
-            "• What are you building?\n"
-            "• Who is it for?\n"
-            "• Key goals & budget?\n"
-            "• Rough timeline?"
-        ),
-        height=200,
-    )
+/* Glowing orb */
+.landing-wrap::after {
+    content: '';
+    position: fixed;
+    width: 600px; height: 600px;
+    background: radial-gradient(circle, #00ff8710 0%, transparent 70%);
+    border-radius: 50%;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: 0;
+    animation: pulse-orb 4s ease-in-out infinite;
+}
+@keyframes pulse-orb {
+    0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 0.6; }
+    50%       { transform: translate(-50%, -50%) scale(1.1); opacity: 1; }
+}
 
-    st.markdown('<div class="section-head">// EXECUTE</div>', unsafe_allow_html=True)
+.landing-inner {
+    position: relative;
+    z-index: 1;
+    text-align: center;
+    max-width: 800px;
+}
 
-    can_go = bool(project_name and project_description)
-    gen_scope_btn = st.button("▶  GENERATE SCOPE", use_container_width=True, type="primary")
-    gen_risks_btn = st.button("▶  GENERATE RISK REGISTER", use_container_width=True)
+/* Terminal badge */
+.term-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: #00ff8712;
+    border: 1px solid #00ff8730;
+    border-radius: 100px;
+    padding: 0.35rem 1rem;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.15em;
+    color: #00ff87;
+    margin-bottom: 2.5rem;
+    text-transform: uppercase;
+}
+.term-badge .dot {
+    width: 6px; height: 6px;
+    background: #00ff87;
+    border-radius: 50%;
+    animation: blink-dot 1.2s step-end infinite;
+}
+@keyframes blink-dot {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0; }
+}
 
-    st.markdown('<div class="section-head">// SYSTEM STATUS</div>', unsafe_allow_html=True)
+/* Big logo text */
+.hero-title {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(5rem, 14vw, 10rem);
+    line-height: 0.9;
+    color: #fff;
+    letter-spacing: 0.03em;
+    margin-bottom: 0.2em;
+    animation: fade-up 0.8s ease both;
+}
+.hero-title .accent { color: #00ff87; }
 
-    steps = [
-        ("SCOPE DEFINED",    st.session_state.scope is not None),
-        ("RISKS MAPPED",     st.session_state.risks is not None),
-        ("CPM COMPUTED",     st.session_state.cpm_results is not None),
-    ]
-    for label, done in steps:
-        if done:
-            st.markdown(f'<div class="prompt-line"><span class="status-ok">✓ {label}</span></div>', unsafe_allow_html=True)
-        else:
-            st.markdown(f'<div class="prompt-line"><span class="status-pend">○ {label}</span></div>', unsafe_allow_html=True)
+@keyframes fade-up {
+    from { opacity: 0; transform: translateY(30px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
 
-    if not can_go:
-        st.markdown('<br><div style="font-family:Share Tech Mono;font-size:0.72rem;color:#1a3a1a;letter-spacing:0.05em">[ AWAITING PROJECT INPUT ]<span class="cursor"></span></div>', unsafe_allow_html=True)
+.hero-sub {
+    font-family: 'Syne', sans-serif;
+    font-size: clamp(1rem, 2.5vw, 1.3rem);
+    color: #555;
+    font-weight: 400;
+    margin-bottom: 3.5rem;
+    animation: fade-up 0.8s 0.15s ease both;
+    line-height: 1.5;
+}
+.hero-sub strong { color: #999; font-weight: 600; }
 
-# ══════════════════════════════════════════════════════════════════════════════
-# HEADER
-# ══════════════════════════════════════════════════════════════════════════════
-st.markdown("""
-<div class="cyber-header">
-  <div class="corner-tl"></div>
-  <div class="corner-tr"></div>
-  <div class="corner-bl"></div>
-  <div class="corner-br"></div>
+/* Terminal typing box */
+.term-box {
+    background: #0c0c0c;
+    border: 1px solid #1e1e1e;
+    border-radius: 12px;
+    padding: 1.2rem 1.6rem;
+    margin-bottom: 2.5rem;
+    text-align: left;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.78rem;
+    animation: fade-up 0.8s 0.3s ease both;
+    position: relative;
+    overflow: hidden;
+}
+.term-box::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, #00ff87, transparent);
+}
+.term-row { display: flex; gap: 0.5rem; margin: 0.2rem 0; }
+.term-prompt { color: #00ff87; }
+.term-cmd    { color: #ccc; }
+.term-out    { color: #555; padding-left: 1rem; }
+.term-cursor {
+    display: inline-block;
+    width: 7px; height: 1em;
+    background: #00ff87;
+    vertical-align: text-bottom;
+    animation: blink-dot 0.9s step-end infinite;
+    margin-left: 2px;
+}
 
-  <div class="cyber-logo glitch">SMART <span>PROJECT</span></div>
-  <div class="cyber-tagline">// The AI Agent That Does the Heavy Lifting For You</div>
-  <div class="cyber-desc">
-    Stop drowning in documentation. SMART PROJECT deploys intelligent agents
-    to define your scope, map your risks, and plot your critical path —
-    in seconds, not days. Built for PMs who move fast.
+/* Feature pills */
+.feature-row {
+    display: flex;
+    justify-content: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-bottom: 3rem;
+    animation: fade-up 0.8s 0.45s ease both;
+}
+.feature-pill {
+    background: #111;
+    border: 1px solid #222;
+    border-radius: 100px;
+    padding: 0.4rem 1rem;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.68rem;
+    color: #666;
+    letter-spacing: 0.08em;
+}
+
+/* CTA button (HTML version for landing) */
+.cta-hint {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.68rem;
+    color: #333;
+    letter-spacing: 0.1em;
+    margin-top: 1rem;
+    animation: fade-up 0.8s 0.6s ease both;
+}
+</style>
+
+<div class="landing-wrap">
+  <div class="landing-inner">
+
+    <div class="term-badge">
+      <span class="dot"></span>
+      AI Agent Online
+    </div>
+
+    <div class="hero-title">
+      SMART<br><span class="accent">PROJECT</span>
+    </div>
+
+    <div class="hero-sub">
+      The AI agent that turns your idea into a<br>
+      <strong>complete project plan</strong> — in under 60 seconds.
+    </div>
+
+    <div class="term-box">
+      <div class="term-row"><span class="term-prompt">→</span><span class="term-cmd">initializing smart_project.agent</span></div>
+      <div class="term-row"><span class="term-out">✓ scope_planner     loaded</span></div>
+      <div class="term-row"><span class="term-out">✓ risk_engine        loaded</span></div>
+      <div class="term-row"><span class="term-out">✓ cpm_pert_analyzer  loaded</span></div>
+      <div class="term-row"><span class="term-out">✓ wbs_builder        loaded</span></div>
+      <div class="term-row"><span class="term-prompt">→</span><span class="term-cmd">status: ready<span class="term-cursor"></span></span></div>
+    </div>
+
+    <div class="feature-row">
+      <span class="feature-pill">Scope Statement</span>
+      <span class="feature-pill">Risk Register</span>
+      <span class="feature-pill">Work Breakdown Structure</span>
+      <span class="feature-pill">CPM / PERT Timeline</span>
+      <span class="feature-pill">Gantt Chart</span>
+    </div>
+
   </div>
-  <br>
-  <span class="tag-pill">SCOPE AI</span>
-  <span class="tag-pill">RISK ENGINE</span>
-  <span class="tag-pill">CPM / PERT</span>
-  <span class="tag-pill">WBS BUILDER</span>
-  <span class="tag-pill">ZERO SETUP</span>
 </div>
 """, unsafe_allow_html=True)
 
-# ── Action handlers ────────────────────────────────────────────────────────────
-if gen_scope_btn:
-    if not can_go:
-        st.warning("⚡ Enter a project name and description first.")
-    else:
-        with st.spinner("[ AGENT PROCESSING — GENERATING SCOPE STATEMENT... ]"):
-            try:
-                scope = generate_scope(API_KEY, project_name, project_description)
-                st.session_state.scope        = scope
-                st.session_state.project_name = project_name
-                st.session_state.risks        = None
-                st.session_state.wbs_data     = None
-                st.session_state.cpm_results  = None
-                st.success("✓ SCOPE STATEMENT GENERATED — SEE TAB 01")
-            except Exception as exc:
-                st.error(f"AGENT ERROR: {exc}")
+    # Centre the button
+    col = st.columns([1, 2, 1])[1]
+    with col:
+        if st.button("▶  START YOUR PROJECT", type="primary", use_container_width=True):
+            go("wizard", wizard_step=1)
+    st.markdown('<div class="cta-hint" style="text-align:center;padding-bottom:3rem">No setup required · Powered by AI</div>', unsafe_allow_html=True)
 
-if gen_risks_btn:
-    if not st.session_state.scope:
-        st.warning("⚡ Generate a Scope Statement first (click ▶ GENERATE SCOPE).")
-    else:
-        with st.spinner("[ AGENT PROCESSING — MAPPING RISKS... ]"):
-            try:
-                risks = generate_risks(API_KEY, st.session_state.scope)
-                st.session_state.risks       = risks
-                st.session_state.wbs_data    = None
-                st.session_state.cpm_results = None
-                st.success("✓ RISK REGISTER COMPILED — SEE TAB 02")
-            except Exception as exc:
-                st.error(f"AGENT ERROR: {exc}")
-
-# ── Tabs ───────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3 = st.tabs([
-    "01 // SCOPE STATEMENT",
-    "02 // RISK REGISTER",
-    "03 // WBS & CPM/PERT",
-])
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 01 — SCOPE STATEMENT
+# SCREEN 2 — WIZARD
 # ══════════════════════════════════════════════════════════════════════════════
-with tab1:
-    if st.session_state.scope:
-        st.markdown('<div class="section-head">// SCOPE STATEMENT OUTPUT</div>', unsafe_allow_html=True)
+def render_wizard():
+    step = st.session_state.wizard_step
 
-        # Render scope in a styled box
-        st.markdown(f"""
-<div style="
-    background:#000500;
-    border:1px solid #00ff4122;
-    border-left:3px solid var(--neon-green);
-    padding:1.5rem 2rem;
-    font-family:'Share Tech Mono',monospace;
-    color:#aaffcc;
-    font-size:0.85rem;
-    line-height:1.9;
-    white-space:pre-wrap;
-">
-{st.session_state.scope}
+    # ── Wrapper ──
+    st.markdown("""
+<style>
+.wizard-wrap {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 4rem 1rem;
+    position: relative;
+}
+.wizard-wrap::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image:
+        linear-gradient(#00ff8705 1px, transparent 1px),
+        linear-gradient(90deg, #00ff8705 1px, transparent 1px);
+    background-size: 60px 60px;
+    mask-image: radial-gradient(ellipse 60% 60% at 50% 30%, black 40%, transparent 100%);
+    pointer-events: none; z-index: 0;
+}
+.wizard-card {
+    position: relative; z-index: 1;
+    background: #0c0c0c;
+    border: 1px solid #1e1e1e;
+    border-radius: 16px;
+    padding: 3rem;
+    width: 100%;
+    max-width: 620px;
+}
+.wizard-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 10%; right: 10%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, #00ff87, transparent);
+}
+.step-indicator {
+    display: flex; align-items: center; gap: 0;
+    margin-bottom: 2.5rem;
+}
+.step-dot {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    border: 1.5px solid #222;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.7rem;
+    color: #444;
+    transition: all 0.3s;
+}
+.step-dot.active {
+    border-color: #00ff87;
+    background: #00ff8715;
+    color: #00ff87;
+}
+.step-dot.done {
+    border-color: #00ff87;
+    background: #00ff87;
+    color: #000;
+    font-weight: 700;
+}
+.step-line {
+    flex: 1; height: 1px;
+    background: #1e1e1e;
+    transition: background 0.3s;
+}
+.step-line.done { background: #00ff8740; }
+.wizard-step-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: #00ff87;
+    margin-bottom: 0.6rem;
+}
+.wizard-step-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 1.8rem;
+    font-weight: 800;
+    color: #fff;
+    margin-bottom: 0.4rem;
+    line-height: 1.15;
+}
+.wizard-step-hint {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.78rem;
+    color: #444;
+    margin-bottom: 2rem;
+    line-height: 1.6;
+}
+</style>
+<div class="wizard-wrap">
+""", unsafe_allow_html=True)
+
+    # ── Step indicator HTML ──
+    s1 = "done" if step > 1 else ("active" if step == 1 else "")
+    s2 = "done" if step > 2 else ("active" if step == 2 else "")
+    s3 = "done" if step > 3 else ("active" if step == 3 else "")
+    l1 = "done" if step > 1 else ""
+    l2 = "done" if step > 2 else ""
+
+    st.markdown(f"""
+<div style="position:relative;z-index:1;width:100%;max-width:620px;margin:0 auto 0">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.4rem">
+    <span style="font-family:'DM Mono',monospace;font-size:0.62rem;color:#333;letter-spacing:0.1em">STEP {step} OF 3</span>
+    <span style="font-family:'DM Mono',monospace;font-size:0.62rem;color:#333;letter-spacing:0.1em">SMART PROJECT</span>
+  </div>
+</div>
+<div style="position:relative;z-index:1;width:100%;max-width:620px;margin:0 auto 1.5rem">
+  <div class="step-indicator">
+    <div class="step-dot {s1}">{"✓" if step > 1 else "1"}</div>
+    <div class="step-line {l1}"></div>
+    <div class="step-dot {s2}">{"✓" if step > 2 else "2"}</div>
+    <div class="step-line {l2}"></div>
+    <div class="step-dot {s3}">3</div>
+  </div>
 </div>
 """, unsafe_allow_html=True)
 
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.download_button(
-            "⬇  EXPORT SCOPE STATEMENT (.TXT)",
-            data=st.session_state.scope,
-            file_name=f"{st.session_state.project_name}_scope_statement.txt",
-            mime="text/plain",
-        )
+    # ── Card wrapper (use columns to center) ──
+    _, col, _ = st.columns([1, 4, 1])
+    with col:
+        st.markdown('<div class="wizard-card">', unsafe_allow_html=True)
 
-    else:
-        st.markdown("""
-<div style="padding:3rem;text-align:center;border:1px dashed #00ff4122;font-family:'Share Tech Mono',monospace;">
-  <div style="font-family:'VT323',monospace;font-size:2rem;color:#1a4d2a;letter-spacing:0.2em">
-    [ AWAITING INPUT ]
-  </div>
-  <div style="color:#0d2a0d;font-size:0.8rem;margin-top:0.5rem;letter-spacing:0.1em">
-    Enter project details in the sidebar and click ▶ GENERATE SCOPE
-  </div>
-</div>
-""", unsafe_allow_html=True)
-        with st.expander("WHAT IS A SCOPE STATEMENT?"):
+        # ── STEP 1: Project Name ──────────────────────────────────────────────
+        if step == 1:
             st.markdown("""
-A **Project Scope Statement** defines the boundaries of your project:
+<div class="wizard-step-label">Step 01 / Name</div>
+<div class="wizard-step-title">What's your<br>project called?</div>
+<div class="wizard-step-hint">Give it a clear, recognisable name. This will appear across all generated documents.</div>
+""", unsafe_allow_html=True)
+            name = st.text_input(
+                "PROJECT NAME",
+                value=st.session_state.project_name,
+                placeholder="e.g.  Hospital Management System",
+                key="w_name",
+            )
+            st.markdown("<br>", unsafe_allow_html=True)
+            c1, c2 = st.columns(2)
+            with c1:
+                if st.button("← Back to Home", use_container_width=True):
+                    go("landing")
+            with c2:
+                if st.button("Continue →", type="primary", use_container_width=True):
+                    if name.strip():
+                        st.session_state.project_name = name.strip()
+                        go("wizard", wizard_step=2)
+                    else:
+                        st.warning("Please enter a project name.")
 
-- **What** will be built (deliverables)
-- **Why** it exists (business justification)
-- **What's in** and **what's out** of scope
-- Constraints, assumptions, and success criteria
+        # ── STEP 2: Description ───────────────────────────────────────────────
+        elif step == 2:
+            st.markdown(f"""
+<div class="wizard-step-label">Step 02 / Description</div>
+<div class="wizard-step-title">Tell the agent<br>about <span style="color:#00ff87">{st.session_state.project_name}</span></div>
+<div class="wizard-step-hint">Describe what you are building, who it is for, and what success looks like. The more detail, the better the output.</div>
+""", unsafe_allow_html=True)
+            desc = st.text_area(
+                "PROJECT DESCRIPTION",
+                value=st.session_state.project_description,
+                placeholder=(
+                    "Describe your project in detail...\n\n"
+                    "• What are you building?\n"
+                    "• Who is it for?\n"
+                    "• What are the main goals?\n"
+                    "• Any known tech stack or approach?"
+                ),
+                height=200,
+                key="w_desc",
+            )
+            st.markdown("<br>", unsafe_allow_html=True)
+            c1, c2 = st.columns(2)
+            with c1:
+                if st.button("← Back", use_container_width=True):
+                    go("wizard", wizard_step=1)
+            with c2:
+                if st.button("Continue →", type="primary", use_container_width=True):
+                    if desc.strip():
+                        st.session_state.project_description = desc.strip()
+                        go("wizard", wizard_step=3)
+                    else:
+                        st.warning("Please add a description.")
 
-It is the single most important document to prevent scope creep.
-""")
+        # ── STEP 3: Constraints ───────────────────────────────────────────────
+        elif step == 3:
+            st.markdown(f"""
+<div class="wizard-step-label">Step 03 / Constraints</div>
+<div class="wizard-step-title">Set your<br>boundaries</div>
+<div class="wizard-step-hint">Define budget, timeline, team size, and any technical or regulatory limits. These shape the scope and risks the AI will generate.</div>
+""", unsafe_allow_html=True)
+
+            r1c1, r1c2 = st.columns(2)
+            with r1c1:
+                budget = st.text_input("BUDGET", placeholder="e.g.  $500,000", key="w_budget")
+            with r1c2:
+                timeline = st.text_input("TIMELINE", placeholder="e.g.  6 months", key="w_timeline")
+
+            r2c1, r2c2 = st.columns(2)
+            with r2c1:
+                team = st.text_input("TEAM SIZE", placeholder="e.g.  8 people", key="w_team")
+            with r2c2:
+                tech = st.text_input("TECH / PLATFORM", placeholder="e.g.  Python, AWS", key="w_tech")
+
+            other = st.text_area(
+                "OTHER CONSTRAINTS",
+                placeholder="Regulatory requirements, legacy systems, geographic limits...",
+                height=90,
+                key="w_other",
+            )
+
+            st.markdown("<br>", unsafe_allow_html=True)
+            c1, c2 = st.columns(2)
+            with c1:
+                if st.button("← Back", use_container_width=True):
+                    go("wizard", wizard_step=2)
+            with c2:
+                if st.button("▶  LAUNCH AGENT", type="primary", use_container_width=True):
+                    parts = []
+                    if budget:   parts.append(f"Budget: {budget}")
+                    if timeline: parts.append(f"Timeline: {timeline}")
+                    if team:     parts.append(f"Team size: {team}")
+                    if tech:     parts.append(f"Technology: {tech}")
+                    if other:    parts.append(f"Other: {other}")
+                    st.session_state.constraints = "\n".join(parts)
+                    go("dashboard")
+
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 02 — RISK REGISTER
+# SCREEN 3 — DASHBOARD
 # ══════════════════════════════════════════════════════════════════════════════
-with tab2:
-    if st.session_state.risks:
-        risks = st.session_state.risks
+def render_dashboard():
+    pname = st.session_state.project_name
+    full_description = (
+        st.session_state.project_description
+        + ("\n\nConstraints:\n" + st.session_state.constraints if st.session_state.constraints else "")
+    )
 
-        high = sum(1 for r in risks if r["risk_score"] == "High")
-        med  = sum(1 for r in risks if r["risk_score"] == "Medium")
-        low  = sum(1 for r in risks if r["risk_score"] == "Low")
+    # ── Top nav bar ────────────────────────────────────────────────────────────
+    st.markdown(f"""
+<style>
+.dash-topbar {{
+    position: sticky; top: 0; z-index: 999;
+    background: #080808ee;
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid #1a1a1a;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.8rem 2.5rem;
+}}
+.dash-brand {{
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 1.4rem;
+    color: #fff;
+    letter-spacing: 0.08em;
+}}
+.dash-brand span {{ color: #00ff87; }}
+.dash-project {{
+    font-family: 'DM Mono', monospace;
+    font-size: 0.72rem;
+    color: #444;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+}}
+.dash-project strong {{
+    color: #00ff87;
+    font-weight: 500;
+}}
+.dash-content {{
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 2.5rem 2rem;
+}}
+.section-label {{
+    font-family: 'DM Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: #00ff87;
+    margin-bottom: 0.6rem;
+}}
+.section-title {{
+    font-family: 'Syne', sans-serif;
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: #fff;
+    margin-bottom: 1.5rem;
+    letter-spacing: -0.01em;
+}}
+.result-panel {{
+    background: #0c0c0c;
+    border: 1px solid #1a1a1a;
+    border-radius: 12px;
+    padding: 2rem 2.5rem;
+    margin-bottom: 1.5rem;
+}}
+.result-panel p, .result-panel li {{
+    font-family: 'DM Mono', monospace !important;
+    font-size: 0.85rem !important;
+    color: #aaa !important;
+    line-height: 1.85 !important;
+}}
+.result-panel h2 {{
+    font-family: 'Syne', sans-serif !important;
+    font-size: 1.2rem !important;
+    font-weight: 800 !important;
+    color: #fff !important;
+    margin-top: 1.5rem !important;
+    margin-bottom: 0.6rem !important;
+    border-bottom: 1px solid #1a1a1a;
+    padding-bottom: 0.4rem;
+}}
+.result-panel h3 {{
+    font-family: 'Syne', sans-serif !important;
+    font-size: 1rem !important;
+    font-weight: 700 !important;
+    color: #00ff87 !important;
+    margin-top: 1.2rem !important;
+    margin-bottom: 0.4rem !important;
+}}
+.result-panel strong {{
+    color: #ddd !important;
+    font-weight: 600 !important;
+}}
+.action-row {{
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 2rem;
+}}
+.status-badge {{
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    background: #00ff8710; border: 1px solid #00ff8730;
+    border-radius: 100px; padding: 0.25rem 0.8rem;
+    font-family: 'DM Mono', monospace; font-size: 0.65rem;
+    color: #00ff87; letter-spacing: 0.1em; text-transform: uppercase;
+}}
+.status-badge .dot {{
+    width: 5px; height: 5px; background: #00ff87;
+    border-radius: 50%; animation: blink-dot 1.2s step-end infinite;
+}}
+.warn-panel {{
+    background: #0f0a00;
+    border: 1px solid #332200;
+    border-left: 3px solid #ffb300;
+    border-radius: 8px;
+    padding: 1rem 1.4rem;
+    margin-bottom: 2rem;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.78rem;
+    color: #886622;
+    line-height: 1.7;
+}}
+.warn-panel strong {{ color: #ffb300; }}
+.cp-badge {{
+    font-family: 'DM Mono', monospace;
+    font-size: 0.78rem;
+    color: #00ff87;
+    background: #00ff8710;
+    border: 1px solid #00ff8720;
+    border-radius: 6px;
+    padding: 0.5rem 1rem;
+    margin-bottom: 1.5rem;
+    display: inline-block;
+    letter-spacing: 0.04em;
+}}
+</style>
 
-        st.markdown('<div class="section-head">// RISK MATRIX OVERVIEW</div>', unsafe_allow_html=True)
-
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("TOTAL RISKS", len(risks))
-        c2.metric("CRITICAL",    high)
-        c3.metric("MODERATE",    med)
-        c4.metric("LOW",         low)
-
-        st.markdown('<div class="section-head">// FULL RISK REGISTER</div>', unsafe_allow_html=True)
-
-        def _colour(val):
-            m = {
-                "High":   "background-color:#3a0000;color:#ff6666;font-weight:700",
-                "Medium": "background-color:#2a1a00;color:#ffcc44;font-weight:700",
-                "Low":    "background-color:#001a00;color:#44ff88;font-weight:700",
-            }
-            return m.get(val, "")
-
-        df = pd.DataFrame(risks).rename(columns={
-            "risk_id": "ID", "risk_name": "Risk",
-            "category": "Category", "description": "Description",
-            "likelihood": "Likelihood", "impact": "Impact",
-            "risk_score": "Score", "mitigation_strategy": "Mitigation",
-        })
-        st.dataframe(
-            df.style.applymap(_colour, subset=["Likelihood", "Impact", "Score"]),
-            use_container_width=True, height=420,
-        )
-
-        st.download_button(
-            "⬇  EXPORT RISK REGISTER (.CSV)",
-            data=df.to_csv(index=False),
-            file_name=f"{st.session_state.project_name}_risk_register.csv",
-            mime="text/csv",
-        )
-
-    elif st.session_state.scope:
-        st.markdown("""
-<div style="padding:3rem;text-align:center;border:1px dashed #00ff4122;font-family:'Share Tech Mono',monospace;color:#1a4d2a">
-  Scope defined. Click ▶ GENERATE RISK REGISTER in the sidebar to proceed.
-</div>""", unsafe_allow_html=True)
-    else:
-        st.markdown("""
-<div style="padding:3rem;text-align:center;border:1px dashed #00ff4122;font-family:'Share Tech Mono',monospace;color:#1a4d2a">
-  [ GENERATE SCOPE FIRST ]
-</div>""", unsafe_allow_html=True)
-
-# ══════════════════════════════════════════════════════════════════════════════
-# TAB 03 — WBS & CPM/PERT
-# ══════════════════════════════════════════════════════════════════════════════
-with tab3:
-    if not st.session_state.risks:
-        st.markdown("""
-<div style="padding:3rem;text-align:center;border:1px dashed #00ff4122;font-family:'Share Tech Mono',monospace;color:#1a4d2a">
-  [ COMPLETE SCOPE + RISK STEPS FIRST ]
-</div>""", unsafe_allow_html=True)
-    else:
-        st.markdown("""
-<div class="warn-cyber">
-⚠ <strong>AGENT DISCLAIMER</strong><br>
-AI-generated WBS and timelines are <em>rough planning estimates only</em>.
-Real delivery depends on team experience, resource availability, vendor timelines,
-regulatory approvals, and dozens of factors no AI can predict with certainty.<br>
-<strong>Validate with your team before presenting to stakeholders.</strong>
+<div class="dash-topbar">
+  <div class="dash-brand">SMART <span>PROJECT</span></div>
+  <div class="dash-project">Active: <strong>{pname}</strong></div>
 </div>
 """, unsafe_allow_html=True)
 
-        st.markdown('<div class="section-head">// SELECT BUILD MODE</div>', unsafe_allow_html=True)
-        mode = st.radio(
-            "",
-            ["🤖  AI — Auto-generate WBS & Timeline", "✏️  MANUAL — Enter my own tasks"],
-            horizontal=True,
-        )
+    # ── Main content ───────────────────────────────────────────────────────────
+    st.markdown('<div class="dash-content">', unsafe_allow_html=True)
 
-        # ── AI MODE ───────────────────────────────────────────────────────────
-        if mode.startswith("🤖"):
-            if st.button("▶  DEPLOY WBS + CPM AGENT", type="primary"):
-                with st.spinner("[ AGENT PROCESSING — BUILDING WORK BREAKDOWN STRUCTURE... ]"):
-                    try:
-                        wbs_data = generate_wbs(
-                            API_KEY,
-                            st.session_state.scope,
-                            st.session_state.project_name,
-                        )
-                        st.session_state.wbs_data = wbs_data
-                        G, results_df, duration, cp = calculate_cpm(wbs_data["tasks"])
-                        st.session_state.cpm_results = {
-                            "G": G, "df": results_df,
-                            "duration": duration, "critical_path": cp,
-                            "tasks": wbs_data["tasks"],
-                        }
-                        st.success("✓ WBS AND CPM/PERT ANALYSIS COMPLETE")
-                    except Exception as exc:
-                        st.error(f"AGENT ERROR: {exc}")
+    # ── Generate buttons row ───────────────────────────────────────────────────
+    st.markdown('<div class="section-label">Agent Controls</div>', unsafe_allow_html=True)
 
-        # ── MANUAL MODE ───────────────────────────────────────────────────────
+    g1, g2, g3 = st.columns([2, 2, 4])
+    with g1:
+        scope_btn = st.button("▶  Generate Scope", type="primary", use_container_width=True)
+    with g2:
+        risk_btn = st.button("▶  Generate Risks", use_container_width=True)
+    with g3:
+        if st.button("← New Project", use_container_width=True):
+            for k in ["scope","risks","wbs_data","cpm_results","project_name",
+                      "project_description","constraints","manual_tasks_list"]:
+                st.session_state[k] = None if k != "project_name" else ""
+            go("landing")
+
+    if scope_btn:
+        with st.spinner("Agent processing — generating scope statement..."):
+            try:
+                scope = generate_scope(API_KEY, pname, full_description)
+                st.session_state.scope = scope
+                st.session_state.risks = None
+                st.session_state.wbs_data = None
+                st.session_state.cpm_results = None
+                st.success("✓ Scope Statement generated")
+            except Exception as e:
+                st.error(f"Error: {e}")
+
+    if risk_btn:
+        if not st.session_state.scope:
+            st.warning("Generate a Scope Statement first.")
         else:
-            st.markdown('<div class="section-head">// TASK INPUT</div>', unsafe_allow_html=True)
-            st.caption("IDs: T1, T2, T3...  |  Durations in DAYS  |  Dependencies: comma-separated (e.g. T1, T2)")
+            with st.spinner("Agent processing — mapping risks..."):
+                try:
+                    risks = generate_risks(API_KEY, st.session_state.scope)
+                    st.session_state.risks = risks
+                    st.session_state.wbs_data = None
+                    st.session_state.cpm_results = None
+                    st.success("✓ Risk Register compiled")
+                except Exception as e:
+                    st.error(f"Error: {e}")
 
-            if st.session_state.manual_tasks_list is None:
-                st.session_state.manual_tasks_list = [
-                    {"task_id": f"T{i+1}", "task_name": "",
-                     "optimistic": 1, "most_likely": 3, "pessimistic": 6,
-                     "dependencies": ""}
-                    for i in range(4)
-                ]
+    st.markdown("<br>", unsafe_allow_html=True)
 
-            if st.button("➕  ADD TASK"):
-                n = len(st.session_state.manual_tasks_list) + 1
-                st.session_state.manual_tasks_list.append({
-                    "task_id": f"T{n}", "task_name": "",
-                    "optimistic": 1, "most_likely": 3, "pessimistic": 6,
-                    "dependencies": "",
-                })
+    # ── Tabs ───────────────────────────────────────────────────────────────────
+    tab1, tab2, tab3 = st.tabs([
+        "Scope Statement",
+        "Risk Register",
+        "WBS & CPM / PERT",
+    ])
 
-            updated = []
-            for i, task in enumerate(st.session_state.manual_tasks_list):
-                label = task["task_name"] or f"TASK_{i+1}"
-                with st.expander(f"{task['task_id']} // {label}", expanded=(i < 2)):
-                    c1, c2 = st.columns([1, 3])
-                    tid   = c1.text_input("ID",          value=task["task_id"],   key=f"tid_{i}")
-                    tname = c2.text_input("TASK NAME",   value=task["task_name"], key=f"tname_{i}")
-                    c3, c4, c5, c6 = st.columns(4)
-                    opt  = c3.number_input("OPTIMISTIC",  min_value=1, value=int(task["optimistic"]),  key=f"opt_{i}")
-                    ml   = c4.number_input("MOST LIKELY", min_value=1, value=int(task["most_likely"]), key=f"ml_{i}")
-                    pess = c5.number_input("PESSIMISTIC", min_value=1, value=int(task["pessimistic"]), key=f"pess_{i}")
-                    deps = c6.text_input("DEPENDENCIES",  value=task["dependencies"],                  key=f"deps_{i}")
-                    updated.append({
-                        "task_id": tid.strip(), "task_name": tname.strip(),
-                        "optimistic": opt, "most_likely": ml, "pessimistic": pess,
-                        "dependencies": deps,
-                    })
+    # ══════════════════════════════════════════════════════════════════════════
+    # TAB 1 — SCOPE
+    # ══════════════════════════════════════════════════════════════════════════
+    with tab1:
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.session_state.scope:
+            st.markdown('<div class="section-label">Output</div>', unsafe_allow_html=True)
+            st.markdown('<div class="section-title">Scope Statement</div>', unsafe_allow_html=True)
 
-            st.session_state.manual_tasks_list = updated
+            st.markdown(f'<div class="result-panel">{st.session_state.scope}</div>',
+                        unsafe_allow_html=True)
 
-            if st.button("▶  CALCULATE CPM / PERT", type="primary"):
-                parsed = [
-                    {**t, "dependencies": [d.strip() for d in t["dependencies"].split(",") if d.strip()]}
-                    for t in updated if t["task_name"] and t["task_id"]
-                ]
-                if len(parsed) < 2:
-                    st.warning("Enter at least 2 named tasks.")
-                else:
-                    try:
-                        G, results_df, duration, cp = calculate_cpm(parsed)
-                        st.session_state.cpm_results = {
-                            "G": G, "df": results_df,
-                            "duration": duration, "critical_path": cp,
-                            "tasks": parsed,
-                        }
-                        st.session_state.wbs_data = None
-                        st.success("✓ CPM/PERT ANALYSIS COMPLETE")
-                    except Exception as exc:
-                        st.error(f"ERROR: {exc}")
-
-        # ── WBS DISPLAY ───────────────────────────────────────────────────────
-        if st.session_state.wbs_data:
-            st.markdown('<div class="section-head">// WORK BREAKDOWN STRUCTURE</div>', unsafe_allow_html=True)
-            icons = {1: "▣", 2: "▷", 3: "·"}
-            colours = {1: "#00e5ff", 2: "#00ff41", 3: "#4a9960"}
-            rows_html = ""
-            for item in st.session_state.wbs_data["wbs"]:
-                indent  = "&nbsp;" * 8 * (item["level"] - 1)
-                icon    = icons.get(item["level"], "·")
-                colour  = colours.get(item["level"], "#4a9960")
-                weight  = "700" if item["level"] == 1 else "400"
-                rows_html += (
-                    f'<div style="font-family:Share Tech Mono,monospace;'
-                    f'color:{colour};font-weight:{weight};'
-                    f'padding:0.18rem 0;font-size:0.82rem;letter-spacing:0.04em">'
-                    f'{indent}{icon} {item["id"]} — {item["name"]}</div>\n'
-                )
-            st.markdown(
-                f'<div style="background:#000500;border:1px solid #00ff4122;'
-                f'padding:1rem 1.5rem;">{rows_html}</div>',
-                unsafe_allow_html=True,
-            )
-
-        # ── CPM RESULTS ───────────────────────────────────────────────────────
-        if st.session_state.cpm_results:
-            cpm = st.session_state.cpm_results
-
-            st.markdown('<div class="section-head">// CPM / PERT ANALYSIS</div>', unsafe_allow_html=True)
-
-            c1, c2, c3 = st.columns(3)
-            c1.metric("TOTAL DURATION", f"{cpm['duration']:.1f} days")
-            c2.metric("CRITICAL TASKS", len(cpm["critical_path"]))
-            c3.metric("TOTAL TASKS",    len(cpm["tasks"]))
-
-            cp_str = " → ".join(cpm["critical_path"])
-            st.markdown(
-                f'<div style="font-family:Share Tech Mono,monospace;'
-                f'color:#00e5ff;font-size:0.8rem;padding:0.5rem 0;'
-                f'letter-spacing:0.05em">CRITICAL PATH: '
-                f'<span style="color:#00ff41">{cp_str}</span></div>',
-                unsafe_allow_html=True,
-            )
-
-            st.markdown('<div class="section-head">// TASK ANALYSIS TABLE</div>', unsafe_allow_html=True)
-
-            def _hl(row):
-                if row["Critical"] == "✅ Yes":
-                    return ["background-color:#200000;color:#ff8888"] * len(row)
-                return ["background-color:#000800;color:#aaffcc"] * len(row)
-
-            st.dataframe(
-                cpm["df"].style.apply(_hl, axis=1),
-                use_container_width=True, height=380,
-            )
-
-            st.markdown('<div class="section-head">// GANTT CHART</div>', unsafe_allow_html=True)
-            fig = plot_gantt(cpm["G"], cpm["tasks"])
-            st.pyplot(fig)
-            plt.close(fig)
-
-            # ── DOWNLOADS ─────────────────────────────────────────────────────
-            st.markdown('<div class="section-head">// EXPORT</div>', unsafe_allow_html=True)
-
-            # Build full report text
-            report_lines = [
-                "=" * 60,
-                f"  SMART PROJECT — FULL PROJECT REPORT",
-                f"  Generated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}",
-                f"  Project: {st.session_state.project_name}",
-                "=" * 60,
-                "",
-                "SCOPE STATEMENT",
-                "-" * 60,
-                st.session_state.scope or "",
-                "",
-                "RISK REGISTER",
-                "-" * 60,
-            ]
-            if st.session_state.risks:
-                for r in st.session_state.risks:
-                    report_lines.append(
-                        f"[{r['risk_id']}] {r['risk_name']} | "
-                        f"Score: {r['risk_score']} | "
-                        f"Likelihood: {r['likelihood']} | Impact: {r['impact']}"
-                    )
-                    report_lines.append(f"     → Mitigation: {r['mitigation_strategy']}")
-                    report_lines.append("")
-            report_lines += [
-                "CPM / PERT SUMMARY",
-                "-" * 60,
-                f"Estimated Project Duration : {cpm['duration']:.1f} days",
-                f"Critical Path              : {cp_str}",
-                "",
-                "TASK ANALYSIS",
-                "-" * 60,
-            ]
-            for _, row in cpm["df"].iterrows():
-                report_lines.append(
-                    f"{row['Task ID']} | {row['Task Name']:<30} | "
-                    f"PERT: {row['PERT Duration (d)']} d | "
-                    f"ES: {row['ES']} | EF: {row['EF']} | "
-                    f"Float: {row['Float']} | {row['Critical']}"
-                )
-            report_lines += ["", "=" * 60,
-                             "  DISCLAIMER: AI-generated estimates. Validate before use.",
-                             "=" * 60]
-            full_report = "\n".join(report_lines)
-
-            dl1, dl2, dl3 = st.columns(3)
-            dl1.download_button(
-                "⬇  FULL REPORT (.TXT)",
-                data=full_report,
-                file_name=f"{st.session_state.project_name}_full_report.txt",
+            st.download_button(
+                "↓  Download Scope (.txt)",
+                data=st.session_state.scope,
+                file_name=f"{pname}_scope_statement.txt",
                 mime="text/plain",
             )
-            dl2.download_button(
-                "⬇  CPM TABLE (.CSV)",
-                data=cpm["df"].to_csv(index=False),
-                file_name=f"{st.session_state.project_name}_cpm.csv",
+        else:
+            _empty_state("Scope Statement", "Click ▶ Generate Scope above to produce a full scope statement for this project.")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # TAB 2 — RISKS
+    # ══════════════════════════════════════════════════════════════════════════
+    with tab2:
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.session_state.risks:
+            risks = st.session_state.risks
+            high = sum(1 for r in risks if r["risk_score"] == "High")
+            med  = sum(1 for r in risks if r["risk_score"] == "Medium")
+            low  = sum(1 for r in risks if r["risk_score"] == "Low")
+
+            st.markdown('<div class="section-label">Overview</div>', unsafe_allow_html=True)
+            st.markdown('<div class="section-title">Risk Register</div>', unsafe_allow_html=True)
+
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Total", len(risks))
+            c2.metric("Critical", high)
+            c3.metric("Moderate", med)
+            c4.metric("Low", low)
+
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            def _rc(val):
+                return {
+                    "High":   "background-color:#1a0000;color:#ff6b6b;font-weight:600",
+                    "Medium": "background-color:#140d00;color:#ffc107;font-weight:600",
+                    "Low":    "background-color:#001a0a;color:#00c853;font-weight:600",
+                }.get(val, "")
+
+            df = pd.DataFrame(risks).rename(columns={
+                "risk_id": "ID", "risk_name": "Risk",
+                "category": "Category", "description": "Description",
+                "likelihood": "Likelihood", "impact": "Impact",
+                "risk_score": "Score", "mitigation_strategy": "Mitigation",
+            })
+            st.dataframe(
+                df.style.applymap(_rc, subset=["Likelihood", "Impact", "Score"]),
+                use_container_width=True, height=420,
+            )
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.download_button(
+                "↓  Download Risk Register (.csv)",
+                data=df.to_csv(index=False),
+                file_name=f"{pname}_risk_register.csv",
                 mime="text/csv",
             )
-            buf = io.BytesIO()
-            fig2 = plot_gantt(cpm["G"], cpm["tasks"])
-            fig2.savefig(buf, format="png", dpi=150,
-                         bbox_inches="tight", facecolor="#0e1117")
-            plt.close(fig2)
-            buf.seek(0)
-            dl3.download_button(
-                "⬇  GANTT CHART (.PNG)",
-                data=buf,
-                file_name=f"{st.session_state.project_name}_gantt.png",
-                mime="image/png",
+        elif st.session_state.scope:
+            _empty_state("Risk Register", "Scope is ready. Click ▶ Generate Risks above.")
+        else:
+            _empty_state("Risk Register", "Generate a Scope Statement first, then generate risks.")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # TAB 3 — WBS & CPM
+    # ══════════════════════════════════════════════════════════════════════════
+    with tab3:
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        if not st.session_state.risks:
+            _empty_state("WBS & CPM / PERT", "Complete the Scope and Risk steps first.")
+        else:
+            st.markdown("""
+<div class="warn-panel">
+  <strong>⚠ Disclaimer</strong><br>
+  AI-generated timelines and WBS are rough planning estimates only.
+  Real delivery depends on team experience, resource availability, vendor timelines,
+  regulatory approvals, and many other factors no AI can fully predict.
+  Always validate with your team before presenting to stakeholders.
+</div>
+""", unsafe_allow_html=True)
+
+            st.markdown('<div class="section-label">Build Mode</div>', unsafe_allow_html=True)
+            mode = st.radio(
+                "",
+                ["🤖  AI — Auto-generate WBS & Timeline",
+                 "✏️  Manual — Enter tasks myself"],
+                horizontal=True,
+                label_visibility="collapsed",
             )
+
+            # ── AI MODE ───────────────────────────────────────────────────────
+            if mode.startswith("🤖"):
+                st.markdown("<br>", unsafe_allow_html=True)
+                if st.button("▶  Build WBS + Critical Path", type="primary"):
+                    with st.spinner("Agent building work breakdown structure..."):
+                        try:
+                            wbs_data = generate_wbs(API_KEY, st.session_state.scope, pname)
+                            st.session_state.wbs_data = wbs_data
+                            G, rdf, dur, cp = calculate_cpm(wbs_data["tasks"])
+                            st.session_state.cpm_results = {
+                                "G": G, "df": rdf, "duration": dur,
+                                "critical_path": cp, "tasks": wbs_data["tasks"],
+                            }
+                            st.success("✓ WBS and CPM/PERT analysis complete")
+                        except Exception as e:
+                            st.error(f"Error: {e}")
+
+            # ── MANUAL MODE ───────────────────────────────────────────────────
+            else:
+                st.markdown("<br>", unsafe_allow_html=True)
+                st.markdown('<div class="section-label">Task Input</div>', unsafe_allow_html=True)
+                st.caption("Task IDs: T1, T2, T3 …  |  Durations in DAYS  |  Dependencies: comma-separated (e.g. T1, T2)")
+
+                if st.session_state.manual_tasks_list is None:
+                    st.session_state.manual_tasks_list = [
+                        {"task_id": f"T{i+1}", "task_name": "",
+                         "optimistic": 1, "most_likely": 3, "pessimistic": 6,
+                         "dependencies": ""}
+                        for i in range(4)
+                    ]
+
+                if st.button("+ Add Task"):
+                    n = len(st.session_state.manual_tasks_list) + 1
+                    st.session_state.manual_tasks_list.append({
+                        "task_id": f"T{n}", "task_name": "",
+                        "optimistic": 1, "most_likely": 3, "pessimistic": 6,
+                        "dependencies": "",
+                    })
+
+                updated = []
+                for i, task in enumerate(st.session_state.manual_tasks_list):
+                    label = task["task_name"] or f"Task {i+1}"
+                    with st.expander(f"{task['task_id']} — {label}", expanded=(i < 2)):
+                        ca, cb = st.columns([1, 3])
+                        tid   = ca.text_input("ID",          value=task["task_id"],   key=f"tid_{i}")
+                        tname = cb.text_input("Task Name",   value=task["task_name"], key=f"tn_{i}")
+                        cc, cd, ce, cf = st.columns(4)
+                        opt  = cc.number_input("Optimistic",  min_value=1, value=int(task["optimistic"]),  key=f"op_{i}")
+                        ml   = cd.number_input("Most Likely", min_value=1, value=int(task["most_likely"]), key=f"ml_{i}")
+                        pess = ce.number_input("Pessimistic", min_value=1, value=int(task["pessimistic"]), key=f"pe_{i}")
+                        deps = cf.text_input("Dependencies",  value=task["dependencies"],                  key=f"dp_{i}")
+                        updated.append({"task_id": tid.strip(), "task_name": tname.strip(),
+                                        "optimistic": opt, "most_likely": ml,
+                                        "pessimistic": pess, "dependencies": deps})
+
+                st.session_state.manual_tasks_list = updated
+
+                if st.button("▶  Calculate CPM / PERT", type="primary"):
+                    parsed = [
+                        {**t, "dependencies": [d.strip() for d in t["dependencies"].split(",") if d.strip()]}
+                        for t in updated if t["task_name"] and t["task_id"]
+                    ]
+                    if len(parsed) < 2:
+                        st.warning("Enter at least 2 named tasks.")
+                    else:
+                        try:
+                            G, rdf, dur, cp = calculate_cpm(parsed)
+                            st.session_state.cpm_results = {
+                                "G": G, "df": rdf, "duration": dur,
+                                "critical_path": cp, "tasks": parsed,
+                            }
+                            st.session_state.wbs_data = None
+                            st.success("✓ CPM/PERT analysis complete")
+                        except Exception as e:
+                            st.error(f"Error: {e}")
+
+            # ── WBS TREE ──────────────────────────────────────────────────────
+            if st.session_state.wbs_data:
+                st.markdown("<br>", unsafe_allow_html=True)
+                st.markdown('<div class="section-label">Work Breakdown Structure</div>', unsafe_allow_html=True)
+                st.markdown('<div class="section-title">WBS Tree</div>', unsafe_allow_html=True)
+
+                icons   = {1: "▣", 2: "▷", 3: "·"}
+                colours = {1: "#fff", 2: "#ccc", 3: "#666"}
+                weights = {1: "800", 2: "600", 3: "400"}
+                sizes   = {1: "0.95rem", 2: "0.85rem", 3: "0.8rem"}
+                rows = ""
+                for item in st.session_state.wbs_data["wbs"]:
+                    indent = "&nbsp;" * 8 * (item["level"] - 1)
+                    ic = icons.get(item["level"], "·")
+                    co = colours.get(item["level"], "#666")
+                    fw = weights.get(item["level"], "400")
+                    fs = sizes.get(item["level"], "0.8rem")
+                    dot = '<span style="color:#00ff87;margin-right:0.4rem">·</span>' if item["level"] == 1 else ""
+                    rows += (
+                        f'<div style="font-family:DM Mono,monospace;color:{co};'
+                        f'font-weight:{fw};font-size:{fs};'
+                        f'padding:0.22rem 0;letter-spacing:0.02em">'
+                        f'{indent}{dot}{ic} <span style="color:#444;margin-right:0.4rem">{item["id"]}</span>{item["name"]}</div>\n'
+                    )
+                st.markdown(
+                    f'<div class="result-panel" style="padding:1.5rem 2rem">{rows}</div>',
+                    unsafe_allow_html=True,
+                )
+
+            # ── CPM RESULTS ───────────────────────────────────────────────────
+            if st.session_state.cpm_results:
+                cpm = st.session_state.cpm_results
+                st.markdown("<br>", unsafe_allow_html=True)
+                st.markdown('<div class="section-label">Analysis</div>', unsafe_allow_html=True)
+                st.markdown('<div class="section-title">CPM / PERT Results</div>', unsafe_allow_html=True)
+
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Estimated Duration", f"{cpm['duration']:.1f} days")
+                m2.metric("Critical Tasks",      len(cpm["critical_path"]))
+                m3.metric("Total Tasks",         len(cpm["tasks"]))
+
+                st.markdown("<br>", unsafe_allow_html=True)
+                cp_str = " → ".join(cpm["critical_path"])
+                st.markdown(
+                    f'<div class="cp-badge">Critical Path: {cp_str}</div>',
+                    unsafe_allow_html=True,
+                )
+
+                st.markdown('<div class="section-label" style="margin-top:1.5rem">Task Table</div>', unsafe_allow_html=True)
+
+                def _hl(row):
+                    if row["Critical"] == "✅ Yes":
+                        return ["background-color:#1a0000;color:#ff8888"] * len(row)
+                    return ["background-color:#0c0c0c;color:#888"] * len(row)
+
+                st.dataframe(
+                    cpm["df"].style.apply(_hl, axis=1),
+                    use_container_width=True, height=380,
+                )
+
+                st.markdown("<br>", unsafe_allow_html=True)
+                st.markdown('<div class="section-label">Gantt Chart</div>', unsafe_allow_html=True)
+                fig = plot_gantt(cpm["G"], cpm["tasks"])
+                st.pyplot(fig)
+                plt.close(fig)
+
+                # ── FULL REPORT ────────────────────────────────────────────────
+                st.markdown("<br>", unsafe_allow_html=True)
+                st.markdown('<div class="section-label">Export</div>', unsafe_allow_html=True)
+
+                report = "\n".join([
+                    "=" * 64,
+                    f"  SMART PROJECT — FULL REPORT",
+                    f"  Project  : {pname}",
+                    f"  Generated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}",
+                    "=" * 64, "",
+                    "SCOPE STATEMENT", "-" * 64,
+                    st.session_state.scope or "", "",
+                    "RISK REGISTER", "-" * 64,
+                ] + [
+                    f"[{r['risk_id']}] {r['risk_name']}  |  {r['risk_score']}  |  "
+                    f"Likelihood: {r['likelihood']}  Impact: {r['impact']}\n"
+                    f"     Mitigation: {r['mitigation_strategy']}\n"
+                    for r in (st.session_state.risks or [])
+                ] + [
+                    "CPM / PERT SUMMARY", "-" * 64,
+                    f"Duration      : {cpm['duration']:.1f} days",
+                    f"Critical Path : {cp_str}", "",
+                    "TASK TABLE", "-" * 64,
+                ] + [
+                    f"{row['Task ID']} | {row['Task Name']:<30} | PERT:{row['PERT Duration (d)']}d"
+                    f" | ES:{row['ES']} EF:{row['EF']} Float:{row['Float']} | {row['Critical']}"
+                    for _, row in cpm["df"].iterrows()
+                ] + [
+                    "", "=" * 64,
+                    "  Disclaimer: AI-generated estimates. Validate before use.",
+                    "=" * 64,
+                ])
+
+                dl1, dl2, dl3, _ = st.columns([2, 2, 2, 2])
+                dl1.download_button(
+                    "↓  Full Report (.txt)", data=report,
+                    file_name=f"{pname}_full_report.txt", mime="text/plain",
+                )
+                dl2.download_button(
+                    "↓  CPM Table (.csv)", data=cpm["df"].to_csv(index=False),
+                    file_name=f"{pname}_cpm.csv", mime="text/csv",
+                )
+                buf = io.BytesIO()
+                fig2 = plot_gantt(cpm["G"], cpm["tasks"])
+                fig2.savefig(buf, format="png", dpi=150,
+                             bbox_inches="tight", facecolor="#0e1117")
+                plt.close(fig2)
+                buf.seek(0)
+                dl3.download_button(
+                    "↓  Gantt (.png)", data=buf,
+                    file_name=f"{pname}_gantt.png", mime="image/png",
+                )
+
+    st.markdown('</div>', unsafe_allow_html=True)   # dash-content
+
+
+def _empty_state(title, hint):
+    st.markdown(f"""
+<div style="
+    text-align:center; padding: 4rem 2rem;
+    border: 1px dashed #1e1e1e; border-radius: 12px;
+    margin-top: 1rem;
+">
+  <div style="font-family:'Syne',sans-serif;font-size:1.1rem;font-weight:700;color:#2a2a2a;margin-bottom:0.5rem">{title}</div>
+  <div style="font-family:'DM Mono',monospace;font-size:0.78rem;color:#2a2a2a">{hint}</div>
+</div>
+""", unsafe_allow_html=True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ROUTER
+# ══════════════════════════════════════════════════════════════════════════════
+screen = st.session_state.screen
+if screen == "landing":
+    render_landing()
+elif screen == "wizard":
+    render_wizard()
+elif screen == "dashboard":
+    render_dashboard()
